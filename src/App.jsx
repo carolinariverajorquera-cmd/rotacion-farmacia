@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+// v2 - con login
 
 const FUNCIONARIAS = [
   { nombre: "Kimberly Bravo González", condicion: "soporte_6meses" },
