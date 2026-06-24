@@ -597,7 +597,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Leyenda — visible para todos, ampliada con condiciones nuevas solo para la jefa */}
+        {/* Leyenda — solo visible para la jefa */}
+        {esJefa && (
         <div style={{
           marginTop: 20,
           padding: "14px 18px",
@@ -619,13 +620,14 @@ export default function App() {
           ].map((r, i) => (
             <span key={i} style={{ fontSize: 11, color: "#94a3b8" }}>{r}</span>
           ))}
-          {esJefa && [
+          {[
             "💼 Compra de Servicios no puede pasar por Soporte",
             "💼 Solo Honorarios pueden ir a Soporte (horas extra fin de semana apoyo PYXIS)",
           ].map((r, i) => (
             <span key={"jefa" + i} style={{ fontSize: 11, color: "#818cf8" }}>{r}</span>
           ))}
         </div>
+        )}
       </div>
 
       {/* Modal de edición manual — solo jefa, no aplica a T1 (fijo) */}
