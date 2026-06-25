@@ -21,7 +21,7 @@ const FUNCIONARIAS = [
   { nombre: "Jacqueline Medina Quijada", condicion: "fija_pyxis", contrato: "contrata", t1: "pyxis" },
   { nombre: "Yassier Lagos Bernal", condicion: null, contrato: "compra_servicios", t1: "domicilio" },
   { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite" },
-  { nombre: "Génesis Riveros Ramirez", condicion: null, contrato: "contrata", t1: "hospitalizados" },
+  { nombre: "Génesis Riveros Ramirez", condicion: "fija_cronico_t2_t3", contrato: "contrata", t1: "hospitalizados" },
   { nombre: "Judith Aravena Peña", condicion: "candidata_soporte", contrato: "honorario", t1: "cronico" },
   { nombre: "Marcela Navarro", condicion: "fija_pyxis", contrato: "honorario", t1: "pyxis" },
   { nombre: "Yamilet Jara", condicion: "solo_satelite_cronico", contrato: "das_chue", t1: "cronico" },
@@ -77,16 +77,23 @@ function generarRotacion(trimestreIdx, rotacionAnterior) {
     return asignacion;
   }
 
-  // Fijar las que no rotan (PYXIS)
+  // Fijar las que no rotan (PYXIS) + Génesis fija en Crónico solo T2 y T3
   FUNCIONARIAS.forEach(f => {
     if (f.condicion === "fija_pyxis") {
       ocupadas["pyxis"].push(f.nombre);
       asignacion[f.nombre] = "pyxis";
     }
+    if (f.condicion === "fija_cronico_t2_t3" && (trimestreIdx === 1 || trimestreIdx === 2)) {
+      ocupadas["cronico"].push(f.nombre);
+      asignacion[f.nombre] = "cronico";
+    }
   });
 
   // Desde julio (T2) Kimberly ya NO está fija en Soporte: rota como el resto (es Honoraria)
-  const libres = FUNCIONARIAS.filter(f => f.condicion !== "fija_pyxis");
+  const libres = FUNCIONARIAS.filter(f =>
+    f.condicion !== "fija_pyxis" &&
+    !(f.condicion === "fija_cronico_t2_t3" && (trimestreIdx === 1 || trimestreIdx === 2))
+  );
   const areasRotables = AREAS.filter(a => !a.fija);
 
   const yamilet = libres.find(f => f.condicion === "solo_satelite_cronico");
@@ -408,11 +415,6 @@ export default function App() {
             {TRIMESTRES[i].label}
           </button>
         ))}
-        {!esJefa && (
-          <span style={{ color: "#475569", fontSize: 11, alignSelf: "center", marginLeft: 8, fontStyle: "italic" }}>
-            Solo se muestra el semestre actual
-          </span>
-        )}
       </div>
 
       <div style={{ padding: "22px 28px" }}>
@@ -475,10 +477,8 @@ export default function App() {
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0" }}>{f.nombre}</div>
                         <div style={{ fontSize: 10, color: "#64748b" }}>
-                          {CONTRATO_LABEL[f.contrato]}
-                          {f.condicion === "fija_pyxis" && " · 🔒 Fija"}
-                          {f.condicion === "solo_satelite_cronico" && " · ⚠️ Solo sat./crónico"}
-                          {f.condicion === "soporte_hasta_junio" && " · 🔄 Soporte solo hasta junio"}
+                          {esJefa && CONTRATO_LABEL[f.contrato]}
+                          {f.condicion === "fija_cronico_t2_t3" && (trimestre === 1 || trimestre === 2) && " · 📌 Fija en Crónico (T2-T3)"}
                         </div>
                       </div>
                       {esJefa && !f.condicion && trimestre !== 0 && (
@@ -540,8 +540,6 @@ export default function App() {
                       whiteSpace: "nowrap",
                     }}>
                       {f.nombre}
-                      {f.condicion === "fija_pyxis" && " 🔒"}
-                      {f.condicion === "solo_satelite_cronico" && " ⚠️"}
                     </td>
                     {trimestresVisibles.map(i => {
                       const rot = rotaciones[i] || {};
