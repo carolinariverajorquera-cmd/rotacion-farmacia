@@ -8,7 +8,7 @@ const CLAVE_JEFA = "farmacia2026";
 // contrato: "honorario" | "contrata" | "compra_servicios" | "das_chue"
 // t1: asignación FIJA de Abril-Junio 2026, según tabla entregada por la jefa
 const FUNCIONARIAS = [
-  { nombre: "Kimberly Bravo González", condicion: "soporte_hasta_junio", contrato: "honorario", t1: "soporte" },
+  { nombre: "Kimberly Bravo González", condicion: null, contrato: "honorario", t1: "soporte", fijas: { 1: "cronico", 2: "cronico" } },
   { nombre: "Mónica Chamblas Velasquez", condicion: null, contrato: "contrata", t1: "cronico" },
   { nombre: "Macarena Villegas Flores", condicion: null, contrato: "contrata", t1: "domicilio" },
   { nombre: "Sarai Gazmuri", condicion: null, contrato: "contrata", t1: "cronico" },
@@ -17,12 +17,12 @@ const FUNCIONARIAS = [
   { nombre: "Daniela Barra Escobar", condicion: null, contrato: "contrata", t1: "hospitalizados" },
   // Roxana: rota en todas las farmacias excepto PYXIS. Cumple 3 meses en Envasado a fin de junio → puede rotar desde julio
   { nombre: "Roxana Gutiérrez Quiñimil", condicion: null, contrato: "contrata", t1: "envasado" },
-  { nombre: "Cinthya Pacheco Ibañez", condicion: null, contrato: "contrata", t1: "satelite" },
+  { nombre: "Cinthya Pacheco Ibañez", condicion: null, contrato: "contrata", t1: "satelite", fijas: { 1: "satelite", 2: "satelite" } },
   { nombre: "Jacqueline Medina Quijada", condicion: "fija_pyxis", contrato: "contrata", t1: "pyxis" },
   { nombre: "Yassier Lagos Bernal", condicion: null, contrato: "compra_servicios", t1: "domicilio" },
-  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite" },
-  { nombre: "Génesis Riveros Ramirez", condicion: "fija_cronico_t2_t3", contrato: "contrata", t1: "hospitalizados" },
-  { nombre: "Judith Aravena Peña", condicion: "candidata_soporte", contrato: "honorario", t1: "cronico" },
+  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite", fijas: { 1: "domicilio", 2: "domicilio" } },
+  { nombre: "Génesis Riveros Ramirez", condicion: null, contrato: "contrata", t1: "hospitalizados", fijas: { 1: "cronico", 2: "cronico" } },
+  { nombre: "Judith Aravena Peña", condicion: null, contrato: "honorario", t1: "cronico", fijas: { 1: "soporte", 2: "soporte" } },
   { nombre: "Marcela Navarro", condicion: "fija_pyxis", contrato: "honorario", t1: "pyxis" },
   { nombre: "Yamilet Jara", condicion: "solo_satelite_cronico", contrato: "das_chue", t1: "cronico" },
 ];
@@ -44,6 +44,13 @@ const TRIMESTRES = [
   { label: "T4 · Enero–Marzo 2027", corto: "Ene–Mar 2027", semestre: 2 },
 ];
 
+function obtenerTrimestreActual(fecha = new Date()) {
+  if (fecha < new Date(2026, 6, 1)) return 0;
+  if (fecha < new Date(2026, 9, 1)) return 1;
+  if (fecha < new Date(2027, 0, 1)) return 2;
+  return 3;
+}
+
 const CONTRATO_LABEL = {
   honorario: "Honorario",
   contrata: "Contrata",
@@ -51,12 +58,21 @@ const CONTRATO_LABEL = {
   das_chue: "DAS Chue.",
 };
 
+function obtenerAsignacionFija(func, trimestreIdx) {
+  if (func.condicion === "fija_pyxis") return "pyxis";
+  return func.fijas?.[trimestreIdx] || null;
+}
+
+function puedeIrASoporte(func) {
+  return func.contrato === "honorario" || func.contrato === "compra_servicios";
+}
+
 function puedeRotar(func, areaId, historial) {
   if (func.condicion === "fija_pyxis") return areaId === "pyxis";
   if (func.condicion === "solo_satelite_cronico") return areaId === "satelite" || areaId === "cronico";
   if (areaId === "pyxis") return false;
-  // Soporte: solo Honorarios (pueden hacer horas extra de apoyo a PYXIS los fines de semana)
-  if (areaId === "soporte" && func.contrato !== "honorario") return false;
+  // Soporte: Honorarios y Compra de Servicios pueden realizar este turno.
+  if (areaId === "soporte" && !puedeIrASoporte(func)) return false;
   const ultima = historial[historial.length - 1];
   if (ultima === "satelite" && areaId === "cronico") return false;
   if (ultima === "cronico" && areaId === "satelite") return false;
@@ -77,23 +93,16 @@ function generarRotacion(trimestreIdx, rotacionAnterior) {
     return asignacion;
   }
 
-  // Fijar las que no rotan (PYXIS) + Génesis fija en Crónico solo T2 y T3
+  // Aplicar posiciones fijas permanentes o definidas para este trimestre.
   FUNCIONARIAS.forEach(f => {
-    if (f.condicion === "fija_pyxis") {
-      ocupadas["pyxis"].push(f.nombre);
-      asignacion[f.nombre] = "pyxis";
-    }
-    if (f.condicion === "fija_cronico_t2_t3" && (trimestreIdx === 1 || trimestreIdx === 2)) {
-      ocupadas["cronico"].push(f.nombre);
-      asignacion[f.nombre] = "cronico";
+    const areaFija = obtenerAsignacionFija(f, trimestreIdx);
+    if (areaFija) {
+      ocupadas[areaFija].push(f.nombre);
+      asignacion[f.nombre] = areaFija;
     }
   });
 
-  // Desde julio (T2) Kimberly ya NO está fija en Soporte: rota como el resto (es Honoraria)
-  const libres = FUNCIONARIAS.filter(f =>
-    f.condicion !== "fija_pyxis" &&
-    !(f.condicion === "fija_cronico_t2_t3" && (trimestreIdx === 1 || trimestreIdx === 2))
-  );
+  const libres = FUNCIONARIAS.filter(f => !obtenerAsignacionFija(f, trimestreIdx));
   const areasRotables = AREAS.filter(a => !a.fija);
 
   const yamilet = libres.find(f => f.condicion === "solo_satelite_cronico");
@@ -225,7 +234,7 @@ function LoginScreen({ onLogin, error }) {
 export default function App() {
   const [modo, setModo] = useState(null); // null | "jefa" | "tens"
   const [loginError, setLoginError] = useState(false);
-  const [trimestre, setTrimestre] = useState(0);
+  const [trimestre, setTrimestre] = useState(obtenerTrimestreActual);
   const [rotaciones, setRotaciones] = useState([]);
   const [loading, setLoading] = useState(false);
   const [vista, setVista] = useState("area");
@@ -244,7 +253,7 @@ export default function App() {
     if (clave === "__public__") {
       setModo("tens");
       setLoginError(false);
-      setTrimestre(0); // TENS arranca viendo su semestre actual (T1)
+      setTrimestre(obtenerTrimestreActual());
       return;
     }
     if (clave === CLAVE_JEFA) { setModo("jefa"); setLoginError(false); return; }
@@ -283,7 +292,7 @@ export default function App() {
 
   const esJefa = modo === "jefa";
 
-  // Las TENS solo ven su semestre actual (T1-T2 o T3-T4), no el año completo
+  // Las TENS solo ven el semestre del trimestre seleccionado, no el año completo.
   const semestreActual = TRIMESTRES[trimestre]?.semestre || 1;
   const trimestresVisibles = esJefa
     ? TRIMESTRES.map((t, i) => i)
@@ -478,10 +487,11 @@ export default function App() {
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0" }}>{f.nombre}</div>
                         <div style={{ fontSize: 10, color: "#64748b" }}>
                           {esJefa && CONTRATO_LABEL[f.contrato]}
-                          {f.condicion === "fija_cronico_t2_t3" && (trimestre === 1 || trimestre === 2) && " · 📌 Fija en Crónico (T2-T3)"}
+                          {esJefa && obtenerAsignacionFija(f, trimestre) && f.condicion !== "fija_pyxis" &&
+                            ` · 📌 Fija en ${getAreaInfo(obtenerAsignacionFija(f, trimestre))?.nombre} hasta diciembre`}
                         </div>
                       </div>
-                      {esJefa && !f.condicion && trimestre !== 0 && (
+                      {esJefa && !f.condicion && !obtenerAsignacionFija(f, trimestre) && trimestre !== 0 && (
                         <button
                           onClick={() => setEditando({ nombre: f.nombre, trimestreIdx: trimestre })}
                           title="Cambiar área"
@@ -569,7 +579,7 @@ export default function App() {
                               {area.nombre.replace("Farmacia ", "")}
                             </span>
                           )}
-                          {esJefa && !f.condicion && esActual && i !== 0 && (
+                          {esJefa && !f.condicion && !obtenerAsignacionFija(f, i) && esActual && i !== 0 && (
                             <button
                               onClick={() => setEditando({ nombre: f.nombre, trimestreIdx: i })}
                               style={{
@@ -614,13 +624,14 @@ export default function App() {
             "🚫 No consecutivo Satélite ↔ Crónico",
             "🔒 PYXIS fija (Jacqueline & Marcela)",
             "⚠️ Yamilet: solo Satélite y Crónico",
-            "🔄 Kimberly: Soporte solo hasta junio 2026",
+            "📌 Jul–Dic: Kimberly y Génesis en Crónico",
+            "📌 Jul–Dic: Cinthya en Satélite y Jocelyn en Domicilio",
+            "🔒 Judith fija en Soporte hasta diciembre 2026",
           ].map((r, i) => (
             <span key={i} style={{ fontSize: 11, color: "#94a3b8" }}>{r}</span>
           ))}
           {[
-            "💼 Compra de Servicios no puede pasar por Soporte",
-            "💼 Solo Honorarios pueden ir a Soporte (horas extra fin de semana apoyo PYXIS)",
+            "💼 Honorarios y Compra de Servicios pueden ir a Soporte",
           ].map((r, i) => (
             <span key={"jefa" + i} style={{ fontSize: 11, color: "#818cf8" }}>{r}</span>
           ))}
@@ -658,7 +669,7 @@ export default function App() {
               {AREAS.filter(a => {
                 if (a.fija) return false;
                 const func = FUNCIONARIAS.find(f => f.nombre === editando.nombre);
-                if (a.id === "soporte" && func?.contrato !== "honorario") return false;
+                if (a.id === "soporte" && !puedeIrASoporte(func)) return false;
                 return true;
               }).map(area => (
                 <button
