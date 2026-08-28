@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 // CONTRASEÑA DE LA JEFA — cámbiala aquí
 // ============================================================
 const CLAVE_JEFA = "farmacia2026";
+const STORAGE_KEY = "rotacion-farmacia-plan-v2";
+const SEMILLA_INICIAL = 20260828;
 
 // contrato: "honorario" | "contrata" | "compra_servicios" | "das_chue"
 // t1: asignación FIJA de Abril-Junio 2026, según tabla entregada por la jefa
 const FUNCIONARIAS = [
-  { nombre: "Kimberly Bravo González", condicion: null, contrato: "honorario", t1: "soporte", fijas: { 1: "cronico", 2: "cronico" } },
+  { nombre: "Kimberly Bravo González", condicion: null, contrato: "honorario", t1: "soporte", fijas: { 1: "cronico", 2: "cronico", 3: "cronico" }, fijaLabel: "Fija en Crónico hasta marzo 2027" },
   { nombre: "Mónica Chamblas Velasquez", condicion: null, contrato: "contrata", t1: "cronico" },
   { nombre: "Macarena Villegas Flores", condicion: null, contrato: "contrata", t1: "domicilio" },
   { nombre: "Sarai Gazmuri", condicion: null, contrato: "contrata", t1: "cronico" },
@@ -17,12 +19,12 @@ const FUNCIONARIAS = [
   { nombre: "Daniela Barra Escobar", condicion: null, contrato: "contrata", t1: "hospitalizados" },
   // Roxana: rota en todas las farmacias excepto PYXIS. Cumple 3 meses en Envasado a fin de junio → puede rotar desde julio
   { nombre: "Roxana Gutiérrez Quiñimil", condicion: null, contrato: "contrata", t1: "envasado" },
-  { nombre: "Cinthya Pacheco Ibañez", condicion: null, contrato: "contrata", t1: "satelite", fijas: { 1: "satelite", 2: "satelite" } },
+  { nombre: "Cinthya Pacheco Ibañez", condicion: null, contrato: "contrata", t1: "satelite", fijas: { 1: "satelite", 2: "satelite" }, fijaLabel: "Fija en Satélite hasta diciembre" },
   { nombre: "Jacqueline Medina Quijada", condicion: "fija_pyxis", contrato: "contrata", t1: "pyxis" },
   { nombre: "Yassier Lagos Bernal", condicion: null, contrato: "compra_servicios", t1: "domicilio" },
-  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite", fijas: { 1: "domicilio", 2: "domicilio" } },
-  { nombre: "Génesis Riveros Ramirez", condicion: null, contrato: "contrata", t1: "hospitalizados", fijas: { 1: "cronico", 2: "cronico" } },
-  { nombre: "Judith Aravena Peña", condicion: null, contrato: "honorario", t1: "cronico", fijas: { 1: "soporte", 2: "soporte" } },
+  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite", fijas: { 1: "domicilio", 2: "domicilio" }, fijaLabel: "Fija en Domicilio hasta diciembre" },
+  { nombre: "Génesis Riveros Ramirez", condicion: null, contrato: "contrata", t1: "hospitalizados", fijas: { 1: "cronico", 2: "cronico" }, fijaLabel: "Fija en Crónico hasta diciembre" },
+  { nombre: "Judith Aravena Peña", condicion: null, contrato: "honorario", t1: "cronico", fijas: { 1: "soporte", 2: "soporte" }, fijaLabel: "Fija en Soporte hasta diciembre" },
   { nombre: "Marcela Navarro", condicion: "fija_pyxis", contrato: "honorario", t1: "pyxis" },
   { nombre: "Yamilet Jara", condicion: "solo_satelite_cronico", contrato: "das_chue", t1: "cronico" },
 ];
@@ -79,7 +81,18 @@ function puedeRotar(func, areaId, historial) {
   return true;
 }
 
-function generarRotacion(trimestreIdx, rotacionAnterior) {
+function crearAleatorio(semilla) {
+  let estado = semilla >>> 0;
+  return () => {
+    estado += 0x6D2B79F5;
+    let valor = estado;
+    valor = Math.imul(valor ^ (valor >>> 15), valor | 1);
+    valor ^= valor + Math.imul(valor ^ (valor >>> 7), valor | 61);
+    return ((valor ^ (valor >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function generarRotacion(trimestreIdx, rotacionAnterior, aleatorio = Math.random) {
   const asignacion = {};
   const ocupadas = {};
   AREAS.forEach(a => { ocupadas[a.id] = []; });
@@ -128,13 +141,44 @@ function generarRotacion(trimestreIdx, rotacionAnterior) {
     }
 
     if (candidatas.length > 0) {
-      const elegida = candidatas[Math.floor(Math.random() * candidatas.length)];
+      const elegida = candidatas[Math.floor(aleatorio() * candidatas.length)];
       ocupadas[elegida.id].push(func.nombre);
       asignacion[func.nombre] = elegida.id;
     }
   });
 
   return asignacion;
+}
+
+function generarPlanificacion(semilla = SEMILLA_INICIAL) {
+  const aleatorio = crearAleatorio(semilla);
+  const r0 = generarRotacion(0, null, aleatorio);
+  const r1 = generarRotacion(1, r0, aleatorio);
+  const r2 = generarRotacion(2, r1, aleatorio);
+  const r3 = generarRotacion(3, r2, aleatorio);
+  return [r0, r1, r2, r3];
+}
+
+function esPlanificacionValida(plan) {
+  return plan && Number.isFinite(plan.semilla) && Array.isArray(plan.rotaciones) && plan.rotaciones.length === TRIMESTRES.length;
+}
+
+function obtenerPlanificacionInicial() {
+  try {
+    const guardada = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+    if (esPlanificacionValida(guardada)) return guardada;
+  } catch {
+    // Si el navegador bloquea localStorage, se usa la planificación estable por defecto.
+  }
+  return { semilla: SEMILLA_INICIAL, rotaciones: generarPlanificacion(SEMILLA_INICIAL) };
+}
+
+function guardarPlanificacion(plan) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
+  } catch {
+    // La aplicación continúa funcionando aunque el navegador bloquee localStorage.
+  }
 }
 
 function getAreaInfo(id) {
@@ -232,21 +276,36 @@ function LoginScreen({ onLogin, error }) {
 
 // ── App principal ──────────────────────────────────────────
 export default function App() {
+  const [planInicial] = useState(obtenerPlanificacionInicial);
   const [modo, setModo] = useState(null); // null | "jefa" | "tens"
   const [loginError, setLoginError] = useState(false);
   const [trimestre, setTrimestre] = useState(obtenerTrimestreActual);
-  const [rotaciones, setRotaciones] = useState([]);
+  const [semilla, setSemilla] = useState(planInicial.semilla);
+  const [rotaciones, setRotaciones] = useState(planInicial.rotaciones);
   const [loading, setLoading] = useState(false);
   const [vista, setVista] = useState("area");
   const [editando, setEditando] = useState(null);
   const [guardado, setGuardado] = useState(false);
 
   useEffect(() => {
-    const r0 = generarRotacion(0, null);
-    const r1 = generarRotacion(1, r0);
-    const r2 = generarRotacion(2, r1);
-    const r3 = generarRotacion(3, r2);
-    setRotaciones([r0, r1, r2, r3]);
+    guardarPlanificacion({ semilla, rotaciones });
+  }, [semilla, rotaciones]);
+
+  useEffect(() => {
+    function sincronizarEntreVentanas(evento) {
+      if (evento.key !== STORAGE_KEY || !evento.newValue) return;
+      try {
+        const plan = JSON.parse(evento.newValue);
+        if (!esPlanificacionValida(plan)) return;
+        setSemilla(plan.semilla);
+        setRotaciones(plan.rotaciones);
+      } catch {
+        // Ignorar valores incompletos escritos por otras pestañas.
+      }
+    }
+
+    window.addEventListener("storage", sincronizarEntreVentanas);
+    return () => window.removeEventListener("storage", sincronizarEntreVentanas);
   }, []);
 
   function handleLogin(clave) {
@@ -263,11 +322,9 @@ export default function App() {
   function regenerar() {
     setLoading(true);
     setTimeout(() => {
-      const r0 = generarRotacion(0, null);
-      const r1 = generarRotacion(1, r0);
-      const r2 = generarRotacion(2, r1);
-      const r3 = generarRotacion(3, r2);
-      setRotaciones([r0, r1, r2, r3]);
+      const nuevaSemilla = Date.now() % 4294967296;
+      setSemilla(nuevaSemilla);
+      setRotaciones(generarPlanificacion(nuevaSemilla));
       setLoading(false);
       mostrarGuardado();
     }, 400);
@@ -488,7 +545,7 @@ export default function App() {
                         <div style={{ fontSize: 10, color: "#64748b" }}>
                           {esJefa && CONTRATO_LABEL[f.contrato]}
                           {esJefa && obtenerAsignacionFija(f, trimestre) && f.condicion !== "fija_pyxis" &&
-                            ` · 📌 Fija en ${getAreaInfo(obtenerAsignacionFija(f, trimestre))?.nombre} hasta diciembre`}
+                            ` · 📌 ${f.fijaLabel || `Fija en ${getAreaInfo(obtenerAsignacionFija(f, trimestre))?.nombre}`}`}
                         </div>
                       </div>
                       {esJefa && !f.condicion && !obtenerAsignacionFija(f, trimestre) && trimestre !== 0 && (
@@ -624,7 +681,8 @@ export default function App() {
             "🚫 No consecutivo Satélite ↔ Crónico",
             "🔒 PYXIS fija (Jacqueline & Marcela)",
             "⚠️ Yamilet: solo Satélite y Crónico",
-            "📌 Jul–Dic: Kimberly y Génesis en Crónico",
+            "📌 Kimberly: Crónico desde julio 2026 hasta marzo 2027",
+            "📌 Jul–Dic: Génesis en Crónico",
             "📌 Jul–Dic: Cinthya en Satélite y Jocelyn en Domicilio",
             "🔒 Judith fija en Soporte hasta diciembre 2026",
           ].map((r, i) => (
