@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# Datos y credenciales generados por la instalación local de XAMPP
+server/data/auth.json
+server/data/plan.json
+server/data/backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
