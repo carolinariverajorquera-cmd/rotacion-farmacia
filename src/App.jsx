@@ -1,808 +1,177 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CONTRATOS, DEFAULT_DATA } from "./defaultData";
+import "./App.css";
 
-// ============================================================
-// CONTRASEÑA DE LA JEFA — cámbiala aquí
-// ============================================================
-const CLAVE_JEFA = "farmacia2026";
-const STORAGE_KEY = "rotacion-farmacia-plan-v3";
-const SEMILLA_INICIAL = 20260907;
+const STORAGE_KEY = "rotacion-farmacia-admin-v1";
+const copiar = value => JSON.parse(JSON.stringify(value));
+const crearId = texto => `${texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-${Date.now().toString(36)}`;
 
-// contrato: "honorario" | "contrata" | "compra_servicios" | "das_chue"
-// t1: asignación FIJA de Abril-Junio 2026, según tabla entregada por la jefa
-const FUNCIONARIAS = [
-  { nombre: "Kimberly Bravo González", condicion: null, contrato: "honorario", t1: "soporte", fijas: { 1: "cronico", 2: "cronico", 3: "cronico" }, fijaLabel: "Fija en Crónico hasta marzo 2027" },
-  { nombre: "Mónica Chamblas Velasquez", condicion: null, contrato: "contrata", t1: "cronico" },
-  { nombre: "Macarena Villegas Flores", condicion: null, contrato: "contrata", t1: "domicilio" },
-  { nombre: "Sarai Gazmuri", condicion: null, contrato: "contrata", t1: "cronico" },
-  { nombre: "Paola Cid Martínez", condicion: null, contrato: "contrata", t1: "cronico" },
-  { nombre: "Flor Martinez", condicion: null, contrato: "compra_servicios", t1: "domicilio" },
-  { nombre: "Daniela Barra Escobar", condicion: null, contrato: "contrata", t1: "hospitalizados" },
-  // Roxana: rota en todas las farmacias excepto PYXIS. Cumple 3 meses en Envasado a fin de junio → puede rotar desde julio
-  { nombre: "Roxana Gutiérrez Quiñimil", condicion: null, contrato: "contrata", t1: "envasado" },
-  { nombre: "Cinthya Pacheco Ibañez", condicion: null, contrato: "contrata", t1: "satelite", fijas: { 1: "satelite", 2: "satelite" }, fijaLabel: "Fija en Satélite hasta diciembre" },
-  { nombre: "Jacqueline Medina Quijada", condicion: "fija_pyxis", contrato: "contrata", t1: "pyxis" },
-  { nombre: "Yassier Lagos Bernal", condicion: null, contrato: "compra_servicios", t1: "domicilio" },
-  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite" },
-  { nombre: "Génesis Riveros Ramirez", condicion: null, contrato: "contrata", t1: "hospitalizados", fijas: { 1: "cronico", 2: "cronico" }, fijaLabel: "Fija en Crónico hasta diciembre" },
-  { nombre: "Judith Aravena Peña", condicion: null, contrato: "honorario", t1: "cronico", fijas: { 1: "soporte", 2: "soporte" }, fijaLabel: "Fija en Soporte hasta diciembre" },
-  { nombre: "Marcela Navarro", condicion: "fija_pyxis", contrato: "honorario", t1: "pyxis" },
-  { nombre: "Yamilet Jara", condicion: null, contrato: "das_chue", t1: "cronico", fijas: { 1: "domicilio", 2: "domicilio" }, fijaLabel: "Fija en Domicilio de julio a diciembre" },
-];
-
-const AREAS = [
-  { id: "soporte", nombre: "Soporte", cupos: [1, 1, 1, 1], color: "#5b5f97", pastel: "#eef0ff" },
-  { id: "hospitalizados", nombre: "Farmacia Hospitalizados", cupos: [2, 2, 2, 2], color: "#2673a6", pastel: "#eaf6ff" },
-  { id: "envasado", nombre: "Envasado", cupos: [1, 1, 1, 1], color: "#a96812", pastel: "#fff4da" },
-  { id: "domicilio", nombre: "Farmacia Domicilio", cupos: [3, 4, 4, 3], color: "#267c68", pastel: "#e9f8f3" },
-  { id: "pyxis", nombre: "PYXIS", cupos: [2, 2, 2, 2], color: "#7252a3", pastel: "#f3eeff", fija: true },
-  { id: "cronico", nombre: "Farmacia Crónico", cupos: [5, 5, 5, 5], color: "#a94872", pastel: "#fdebf4" },
-  { id: "satelite", nombre: "Farmacia Satélite", cupos: [2, 1, 1, 2], color: "#ad5b2c", pastel: "#fff0e7" },
-];
-
-const ROTACION_JULIO_DICIEMBRE = {
-  "Judith Aravena Peña": "soporte",
-  "Daniela Barra Escobar": "hospitalizados",
-  "Sarai Gazmuri": "hospitalizados",
-  "Mónica Chamblas Velasquez": "envasado",
-  "Jocelyn Valdes Cartes": "domicilio",
-  "Paola Cid Martínez": "domicilio",
-  "Macarena Villegas Flores": "domicilio",
-  "Yamilet Jara": "domicilio",
-  "Jacqueline Medina Quijada": "pyxis",
-  "Marcela Navarro": "pyxis",
-  "Kimberly Bravo González": "cronico",
-  "Flor Martinez": "cronico",
-  "Génesis Riveros Ramirez": "cronico",
-  "Yassier Lagos Bernal": "cronico",
-  "Roxana Gutiérrez Quiñimil": "cronico",
-  "Cinthya Pacheco Ibañez": "satelite",
-};
-
-const TRIMESTRES = [
-  { label: "T1 · Abril–Junio 2026", corto: "Abr–Jun 2026", semestre: 1 },
-  { label: "T2 · Julio–Septiembre 2026", corto: "Jul–Sep 2026", semestre: 1 },
-  { label: "T3 · Octubre–Diciembre 2026", corto: "Oct–Dic 2026", semestre: 2 },
-  { label: "T4 · Enero–Marzo 2027", corto: "Ene–Mar 2027", semestre: 2 },
-];
-
-function obtenerTrimestreActual(fecha = new Date()) {
-  if (fecha < new Date(2026, 6, 1)) return 0;
-  if (fecha < new Date(2026, 9, 1)) return 1;
-  if (fecha < new Date(2027, 0, 1)) return 2;
-  return 3;
-}
-
-const CONTRATO_LABEL = {
-  honorario: "Honorario",
-  contrata: "Contrata",
-  compra_servicios: "Compra de Servicios",
-  das_chue: "DAS Chue.",
-};
-
-function obtenerAsignacionFija(func, trimestreIdx) {
-  if (func.condicion === "fija_pyxis") return "pyxis";
-  return func.fijas?.[trimestreIdx] || null;
-}
-
-function obtenerCupoArea(area, trimestreIdx) {
-  return area.cupos?.[trimestreIdx] ?? area.cupos?.[0] ?? 0;
-}
-
-function puedeIrASoporte(func) {
-  return func.contrato === "honorario" || func.contrato === "compra_servicios";
-}
-
-function puedeRotar(func, areaId, historial) {
-  if (func.condicion === "fija_pyxis") return areaId === "pyxis";
-  if (areaId === "pyxis") return false;
-  // Soporte: Honorarios y Compra de Servicios pueden realizar este turno.
-  if (areaId === "soporte" && !puedeIrASoporte(func)) return false;
-  const ultima = historial[historial.length - 1];
-  if (ultima === "satelite" && areaId === "cronico") return false;
-  if (ultima === "cronico" && areaId === "satelite") return false;
-  return true;
-}
-
-function crearAleatorio(semilla) {
-  let estado = semilla >>> 0;
-  return () => {
-    estado += 0x6D2B79F5;
-    let valor = estado;
-    valor = Math.imul(valor ^ (valor >>> 15), valor | 1);
-    valor ^= valor + Math.imul(valor ^ (valor >>> 7), valor | 61);
-    return ((valor ^ (valor >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function generarRotacion(trimestreIdx, rotacionAnterior, aleatorio = Math.random) {
-  const asignacion = {};
-  const ocupadas = {};
-  AREAS.forEach(a => { ocupadas[a.id] = []; });
-
-  // T1 (Abril-Junio 2026) es FIJO según tabla entregada por la jefa
-  if (trimestreIdx === 0) {
-    FUNCIONARIAS.forEach(f => {
-      ocupadas[f.t1].push(f.nombre);
-      asignacion[f.nombre] = f.t1;
-    });
-    return asignacion;
-  }
-
-  // Distribución acordada con la jefatura para julio-diciembre de 2026.
-  if (trimestreIdx === 1 || trimestreIdx === 2) {
-    return { ...ROTACION_JULIO_DICIEMBRE };
-  }
-
-  // Aplicar posiciones fijas permanentes o definidas para este trimestre.
-  FUNCIONARIAS.forEach(f => {
-    const areaFija = obtenerAsignacionFija(f, trimestreIdx);
-    if (areaFija) {
-      ocupadas[areaFija].push(f.nombre);
-      asignacion[f.nombre] = areaFija;
-    }
+async function api(action, options = {}) {
+  const response = await fetch(`./api/index.php?action=${encodeURIComponent(action)}`, {
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
   });
-
-  const libres = FUNCIONARIAS.filter(f => !obtenerAsignacionFija(f, trimestreIdx));
-  const areasRotables = AREAS.filter(a => !a.fija);
-
-  const ordenadas = libres;
-
-  ordenadas.forEach(func => {
-    const historial = rotacionAnterior
-      ? [rotacionAnterior[func.nombre]].filter(Boolean)
-      : [];
-
-    let candidatas = areasRotables.filter(a => {
-      const llena = ocupadas[a.id].length >= obtenerCupoArea(a, trimestreIdx);
-      const puede = puedeRotar(func, a.id, historial);
-      const mismaQueAnterior = historial[historial.length - 1] === a.id;
-      return !llena && puede && !mismaQueAnterior;
-    });
-
-    if (candidatas.length === 0) {
-      candidatas = areasRotables.filter(a =>
-        ocupadas[a.id].length < obtenerCupoArea(a, trimestreIdx) && puedeRotar(func, a.id, historial)
-      );
-    }
-
-    if (candidatas.length > 0) {
-      const elegida = candidatas[Math.floor(aleatorio() * candidatas.length)];
-      ocupadas[elegida.id].push(func.nombre);
-      asignacion[func.nombre] = elegida.id;
-    }
-  });
-
-  return asignacion;
+  if (!response.ok) throw new Error(response.status === 401 ? "Contraseña incorrecta" : `Error del servidor (${response.status})`);
+  const result = await response.json();
+  if (!result.ok) throw new Error(result.error || "No fue posible completar la operación");
+  return result;
 }
 
-function generarPlanificacion(semilla = SEMILLA_INICIAL) {
-  const aleatorio = crearAleatorio(semilla);
-  const r0 = generarRotacion(0, null, aleatorio);
-  const r1 = generarRotacion(1, r0, aleatorio);
-  const r2 = generarRotacion(2, r1, aleatorio);
-  const r3 = generarRotacion(3, r2, aleatorio);
-  return [r0, r1, r2, r3];
+function periodoInicial(periodos) {
+  const fecha = new Date();
+  if (fecha < new Date(2026, 6, 1)) return periodos[0]?.id;
+  if (fecha < new Date(2026, 9, 1)) return periodos[1]?.id;
+  if (fecha < new Date(2027, 0, 1)) return periodos[2]?.id;
+  return periodos[3]?.id || periodos.at(-1)?.id;
 }
 
-function esPlanificacionValida(plan) {
-  return plan && Number.isFinite(plan.semilla) && Array.isArray(plan.rotaciones) && plan.rotaciones.length === TRIMESTRES.length;
+function Modal({ title, onClose, children }) {
+  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}>
+    <section className="modal-card"><header><h2>{title}</h2><button className="icon-button" onClick={onClose}>×</button></header>{children}</section>
+  </div>;
 }
 
-function obtenerPlanificacionInicial() {
-  try {
-    const guardada = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
-    if (esPlanificacionValida(guardada)) return guardada;
-  } catch {
-    // Si el navegador bloquea localStorage, se usa la planificación estable por defecto.
-  }
-  return { semilla: SEMILLA_INICIAL, rotaciones: generarPlanificacion(SEMILLA_INICIAL) };
-}
-
-function guardarPlanificacion(plan) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(plan));
-  } catch {
-    // La aplicación continúa funcionando aunque el navegador bloquee localStorage.
-  }
-}
-
-function getAreaInfo(id) {
-  return AREAS.find(a => a.id === id);
-}
-
-// ── Pantalla de login ──────────────────────────────────────
-function LoginScreen({ onLogin, error }) {
+function Login({ onLogin, onPublico, error, waiting, servidor }) {
   const [clave, setClave] = useState("");
-  return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(145deg, #f8fafc 0%, #eef2ff 50%, #f0fdfa 100%)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: "'DM Sans','Segoe UI',sans-serif",
-    }}>
-      <div style={{
-        background: "rgba(255,255,255,0.94)",
-        border: "1px solid #e2e8f0",
-        borderRadius: 20,
-        padding: "40px 48px",
-        width: 340,
-        textAlign: "center",
-        boxShadow: "0 24px 70px rgba(79,70,229,0.12)",
-      }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>🔐</div>
-        <div style={{ fontSize: 11, letterSpacing: 4, color: "#818cf8", textTransform: "uppercase", marginBottom: 6 }}>
-          Acceso Jefa de Farmacia
-        </div>
-        <h2 style={{ color: "#1e293b", margin: "0 0 28px", fontSize: 20, fontWeight: 700 }}>
-          Ingresa tu clave
-        </h2>
-        <input
-          type="password"
-          value={clave}
-          onChange={e => setClave(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && onLogin(clave)}
-          placeholder="Contraseña"
-          style={{
-            width: "100%",
-            padding: "12px 16px",
-            background: "#f8fafc",
-            border: error ? "1px solid #ef4444" : "1px solid #cbd5e1",
-            borderRadius: 10,
-            color: "#1e293b",
-            fontSize: 15,
-            marginBottom: 8,
-            boxSizing: "border-box",
-            outline: "none",
-          }}
-        />
-        {error && (
-          <div style={{ color: "#f87171", fontSize: 12, marginBottom: 10 }}>
-            Contraseña incorrecta
-          </div>
-        )}
-        <button
-          onClick={() => onLogin(clave)}
-          style={{
-            width: "100%",
-            padding: "12px",
-            background: "linear-gradient(135deg,#6366f1,#818cf8)",
-            border: "none",
-            borderRadius: 10,
-            color: "white",
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: "pointer",
-            marginTop: 4,
-          }}
-        >
-          Ingresar
-        </button>
-        <button
-          onClick={() => onLogin("__public__")}
-          style={{
-            width: "100%",
-            padding: "10px",
-            background: "transparent",
-            border: "none",
-            color: "#64748b",
-            fontSize: 12,
-            cursor: "pointer",
-            marginTop: 12,
-            textDecoration: "underline",
-          }}
-        >
-          Soy TENS, ver rotación →
-        </button>
-      </div>
-    </div>
-  );
+  return <main className="login-shell"><section className="login-card">
+    <div className="login-icon">🔐</div><p className="eyebrow">Acceso Jefa de Farmacia</p><h1>Administración de rotaciones</h1>
+    <p>{servidor ? "Los cambios quedarán disponibles para toda la red del hospital." : "Modo local de respaldo."}</p>
+    <input type="password" placeholder="Contraseña" value={clave} onChange={e => setClave(e.target.value)} onKeyDown={e => e.key === "Enter" && onLogin(clave)} />
+    {error && <span className="error-text">{error}</span>}
+    <button className="primary wide" disabled={waiting} onClick={() => onLogin(clave)}>{waiting ? "Ingresando…" : "Ingresar"}</button>
+    <button className="link-button" onClick={onPublico}>Soy TENS, ver rotación →</button>
+  </section></main>;
 }
 
-// ── App principal ──────────────────────────────────────────
+function PersonaModal({ persona, onClose, onSave }) {
+  const [form, setForm] = useState({ id: persona.id || "", nombre: persona.nombre || "", contrato: persona.contrato || "contrata", nota: persona.nota || "" });
+  return <Modal title={form.id ? "Editar funcionaria" : "Agregar funcionaria"} onClose={onClose}><div className="form-grid">
+    <label>Nombre completo<input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} /></label>
+    <label>Tipo de contrato<select value={form.contrato} onChange={e => setForm({ ...form, contrato: e.target.value })}>{Object.entries(CONTRATOS).map(([id, nombre]) => <option key={id} value={id}>{nombre}</option>)}</select></label>
+    <label>Nota o condición especial<textarea value={form.nota} onChange={e => setForm({ ...form, nota: e.target.value })} placeholder="Ej.: Fija en Crónico hasta diciembre" /></label>
+    <button className="primary" disabled={!form.nombre.trim()} onClick={() => onSave({ ...form, nombre: form.nombre.trim() })}>Guardar funcionaria</button>
+  </div></Modal>;
+}
+
+function AdminPanel({ datos, acciones, servidor }) {
+  const [tab, setTab] = useState("personal");
+  return <main className="admin-content">
+    <div className="admin-intro"><div><p className="eyebrow">Panel de administración</p><h2>Gestión completa del sistema</h2><p>{servidor ? "Los cambios quedan disponibles para toda la red." : "Modo local: los cambios quedan solo en este navegador."}</p></div><button className="secondary" onClick={acciones.password}>🔑 Cambiar contraseña</button></div>
+    <nav className="admin-tabs">{[["personal","Personal"],["areas","Áreas y cupos"],["periodos","Períodos"],["reglas","Reglas"]].map(([id,nombre]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>{nombre}</button>)}</nav>
+
+    {tab === "personal" && <section className="admin-section"><div className="section-title"><h3>Funcionarias</h3><button className="primary" onClick={() => acciones.persona({})}>+ Agregar funcionaria</button></div><div className="admin-list">{datos.personas.map(p => <article key={p.id}><div><strong>{p.nombre}</strong><small>{CONTRATOS[p.contrato]}{p.nota && ` · ${p.nota}`}</small></div><div><button className="secondary" onClick={() => acciones.persona(p)}>Editar</button><button className="danger" onClick={() => acciones.eliminarPersona(p.id)}>Eliminar</button></div></article>)}</div></section>}
+
+    {tab === "areas" && <section className="admin-section"><div className="section-title"><h3>Farmacias, áreas y cupos</h3><button className="primary" onClick={acciones.agregarArea}>+ Agregar área</button></div><div className="area-admin-grid">{datos.areas.map(a => <article key={a.id} style={{ "--accent": a.color, "--pastel": a.pastel }}>
+      <label>Nombre<input defaultValue={a.nombre} onBlur={e => e.target.value !== a.nombre && acciones.actualizarArea(a.id, { nombre: e.target.value })} /></label>
+      <div className="color-line"><label>Color<input type="color" value={a.color} onChange={e => acciones.actualizarArea(a.id, { color: e.target.value })} /></label><label>Fondo<input type="color" value={a.pastel} onChange={e => acciones.actualizarArea(a.id, { pastel: e.target.value })} /></label></div>
+      <div className="quota-grid">{datos.periodos.map(p => <label key={p.id}>{p.corto}<input type="number" min="0" value={a.cupos?.[p.id] ?? 0} onChange={e => acciones.actualizarArea(a.id, { cupos: { ...a.cupos, [p.id]: Number(e.target.value) } })} /></label>)}</div>
+      <button className="danger" onClick={() => acciones.eliminarArea(a.id)}>Eliminar área</button>
+    </article>)}</div></section>}
+
+    {tab === "periodos" && <section className="admin-section"><div className="section-title"><h3>Períodos de rotación</h3><button className="primary" onClick={acciones.agregarPeriodo}>+ Agregar período</button></div><div className="admin-list">{datos.periodos.map(p => <article key={p.id}><div className="inline-fields"><input value={p.label} onChange={e => acciones.actualizarPeriodo(p.id, { label: e.target.value })} /><input value={p.corto} onChange={e => acciones.actualizarPeriodo(p.id, { corto: e.target.value })} /><select value={p.semestre} onChange={e => acciones.actualizarPeriodo(p.id, { semestre: Number(e.target.value) })}><option value="1">Semestre 1</option><option value="2">Semestre 2</option></select></div><button className="danger" onClick={() => acciones.eliminarPeriodo(p.id)}>Eliminar</button></article>)}</div></section>}
+
+    {tab === "reglas" && <section className="admin-section"><div className="section-title"><h3>Reglas visibles</h3><button className="primary" onClick={acciones.agregarRegla}>+ Agregar regla</button></div><div className="admin-list">{datos.reglas.map((r,i) => <article key={i}><input defaultValue={r} onBlur={e => e.target.value !== r && acciones.actualizarRegla(i, e.target.value)} /><button className="danger" onClick={() => acciones.eliminarRegla(i)}>Eliminar</button></article>)}</div></section>}
+  </main>;
+}
+
 export default function App() {
-  const [planInicial] = useState(obtenerPlanificacionInicial);
-  const [modo, setModo] = useState(null); // null | "jefa" | "tens"
-  const [loginError, setLoginError] = useState(false);
-  const [trimestre, setTrimestre] = useState(obtenerTrimestreActual);
-  const [semilla, setSemilla] = useState(planInicial.semilla);
-  const [rotaciones, setRotaciones] = useState(planInicial.rotaciones);
-  const [loading, setLoading] = useState(false);
+  const [datos, setDatos] = useState(copiar(DEFAULT_DATA));
+  const [servidor, setServidor] = useState(false);
+  const [modo, setModo] = useState(null);
+  const [esperando, setEsperando] = useState(true);
+  const [error, setError] = useState("");
+  const [periodoId, setPeriodoId] = useState("t2");
+  const [seccion, setSeccion] = useState("rotacion");
   const [vista, setVista] = useState("area");
-  const [editando, setEditando] = useState(null);
-  const [guardado, setGuardado] = useState(false);
+  const [estado, setEstado] = useState("");
+  const [moviendo, setMoviendo] = useState(null);
+  const [personaForm, setPersonaForm] = useState(null);
+  const [claveForm, setClaveForm] = useState(null);
 
   useEffect(() => {
-    guardarPlanificacion({ semilla, rotaciones });
-  }, [semilla, rotaciones]);
-
-  useEffect(() => {
-    function sincronizarEntreVentanas(evento) {
-      if (evento.key !== STORAGE_KEY || !evento.newValue) return;
+    let activo = true;
+    (async () => {
       try {
-        const plan = JSON.parse(evento.newValue);
-        if (!esPlanificacionValida(plan)) return;
-        setSemilla(plan.semilla);
-        setRotaciones(plan.rotaciones);
+        const result = await api("data");
+        if (!activo) return;
+        const inicial = result.data || copiar(DEFAULT_DATA);
+        setDatos(inicial); setServidor(true); setPeriodoId(periodoInicial(inicial.periodos));
+        if (result.authenticated) setModo("jefa");
       } catch {
-        // Ignorar valores incompletos escritos por otras pestañas.
-      }
-    }
-
-    window.addEventListener("storage", sincronizarEntreVentanas);
-    return () => window.removeEventListener("storage", sincronizarEntreVentanas);
+        if (!activo) return;
+        try { const local = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (local?.personas) setDatos(local); } catch { /* respaldo inicial */ }
+        setPeriodoId(periodoInicial(DEFAULT_DATA.periodos));
+      } finally { if (activo) setEsperando(false); }
+    })();
+    return () => { activo = false; };
   }, []);
 
-  function handleLogin(clave) {
-    if (clave === "__public__") {
-      setModo("tens");
-      setLoginError(false);
-      setTrimestre(obtenerTrimestreActual());
-      return;
+  async function login(clave) {
+    setError(""); setEsperando(true);
+    try {
+      if (!servidor) throw new Error("La administración está disponible únicamente en el servidor del hospital");
+      await api("login", { method: "POST", body: JSON.stringify({ password: clave }) });
+      setModo("jefa");
     }
-    if (clave === CLAVE_JEFA) { setModo("jefa"); setLoginError(false); return; }
-    setLoginError(true);
+    catch (e) { setError(e.message); } finally { setEsperando(false); }
   }
 
-  function regenerar() {
-    setLoading(true);
-    setTimeout(() => {
-      const nuevaSemilla = Date.now() % 4294967296;
-      setSemilla(nuevaSemilla);
-      setRotaciones(generarPlanificacion(nuevaSemilla));
-      setLoading(false);
-      mostrarGuardado();
-    }, 400);
+  async function logout() {
+    if (servidor) try { await api("logout", { method: "POST", body: "{}" }); } catch { /* salida visual */ }
+    setModo(null); setSeccion("rotacion");
   }
 
-  function mostrarGuardado() {
-    setGuardado(true);
-    setTimeout(() => setGuardado(false), 2500);
+  async function guardar(nuevos, mensaje = "Cambios guardados") {
+    setDatos(nuevos); setEstado("Guardando…");
+    try { if (servidor) await api("save", { method: "POST", body: JSON.stringify({ data: nuevos }) }); else localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos)); setEstado(`✓ ${mensaje}`); }
+    catch (e) { setEstado(`⚠ ${e.message}`); }
+    window.setTimeout(() => setEstado(""), 2600);
   }
-
-  function cambiarArea(nombre, trimestreIdx, nuevaArea) {
-    setRotaciones(prev => {
-      const copia = prev.map(r => ({ ...r }));
-      copia[trimestreIdx] = { ...copia[trimestreIdx], [nombre]: nuevaArea };
-      return copia;
-    });
-    setEditando(null);
-    mostrarGuardado();
-  }
-
-  if (!modo) return <LoginScreen onLogin={handleLogin} error={loginError} />;
 
   const esJefa = modo === "jefa";
-
-  // Las TENS solo ven el semestre del trimestre seleccionado, no el año completo.
-  const semestreActual = TRIMESTRES[trimestre]?.semestre || 1;
-  const trimestresVisibles = esJefa
-    ? TRIMESTRES.map((t, i) => i)
-    : TRIMESTRES.map((t, i) => i).filter(i => TRIMESTRES[i].semestre === semestreActual);
-
-  const rotacionActual = rotaciones[trimestre] || {};
-  const agrupadaPorArea = AREAS.map(area => ({
-    ...area,
-    cupo: obtenerCupoArea(area, trimestre),
-    funcionarias: FUNCIONARIAS.filter(f => rotacionActual[f.nombre] === area.id),
-  }));
-
-  return (
-    <div style={{
-      minHeight: "100vh",
-      background: "linear-gradient(180deg,#f8fafc 0%,#f3f6fb 100%)",
-      fontFamily: "'DM Sans','Segoe UI',sans-serif",
-      color: "#1e293b",
-    }}>
-      {/* Header */}
-      <div style={{
-        background: "rgba(255,255,255,0.96)",
-        borderBottom: "1px solid #e2e8f0",
-        boxShadow: "0 1px 8px rgba(15,23,42,0.04)",
-        padding: "20px 28px",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        flexWrap: "wrap",
-        gap: 12,
-      }}>
-        <div>
-          <div style={{ fontSize: 10, letterSpacing: 4, color: "#6366f1", textTransform: "uppercase", marginBottom: 4 }}>
-            Hospital · Equipo Farmacia
-          </div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Rotación TENS 2026</h1>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span style={{
-            background: esJefa ? "#eef2ff" : "#ecfdf5",
-            border: `1px solid ${esJefa ? "#c7d2fe" : "#a7f3d0"}`,
-            color: esJefa ? "#4f46e5" : "#047857",
-            borderRadius: 20,
-            padding: "4px 12px",
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: 1,
-          }}>
-            {esJefa ? "🔐 Jefa de Farmacia" : "👁 TENS — Solo lectura"}
-          </span>
-
-          {guardado && (
-            <span style={{ color: "#059669", fontSize: 12, fontWeight: 600 }}>✓ Cambios guardados</span>
-          )}
-
-          <button
-            onClick={() => setVista(v => v === "area" ? "funcionaria" : "area")}
-            style={{
-              background: "#eef2ff",
-              border: "1px solid #c7d2fe",
-              color: "#4f46e5",
-              borderRadius: 8,
-              padding: "7px 14px",
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-          >
-            {vista === "area" ? "👤 Ver por funcionaria" : "🏥 Ver por área"}
-          </button>
-
-          {/* Solo la jefa puede generar nuevas rotaciones */}
-          {esJefa && (
-            <button
-              onClick={regenerar}
-              disabled={loading}
-              style={{
-                background: loading ? "#c7d2fe" : "#6366f1",
-                border: "none",
-                color: "white",
-                borderRadius: 8,
-                padding: "7px 16px",
-                cursor: loading ? "not-allowed" : "pointer",
-                fontSize: 12,
-                fontWeight: 700,
-              }}
-            >
-              {loading ? "⏳ Generando..." : "🔀 Nueva rotación"}
-            </button>
-          )}
-
-          <button
-            onClick={() => setModo(null)}
-            style={{
-              background: "transparent",
-              border: "1px solid #cbd5e1",
-              color: "#64748b",
-              borderRadius: 8,
-              padding: "7px 12px",
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            Salir
-          </button>
-        </div>
-      </div>
-
-      {/* Selector trimestres — TENS solo ve su semestre actual */}
-      <div style={{ display: "flex", gap: 8, padding: "18px 28px 0", overflowX: "auto" }}>
-        {trimestresVisibles.map(i => (
-          <button
-            key={i}
-            onClick={() => setTrimestre(i)}
-            style={{
-              background: trimestre === i
-                ? "linear-gradient(135deg,#6366f1,#818cf8)"
-                : "#ffffff",
-              border: trimestre === i ? "none" : "1px solid #dbe3ee",
-              color: trimestre === i ? "white" : "#64748b",
-              borderRadius: 10,
-              padding: "9px 16px",
-              cursor: "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
-              boxShadow: trimestre === i ? "0 4px 15px rgba(99,102,241,0.24)" : "0 1px 3px rgba(15,23,42,0.04)",
-            }}
-          >
-            {TRIMESTRES[i].label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ padding: "22px 28px" }}>
-        {vista === "area" ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 14 }}>
-            {agrupadaPorArea.map(area => (
-              <div key={area.id} style={{
-                background: "#ffffff",
-                border: `1px solid ${area.color}30`,
-                borderRadius: 14,
-                overflow: "hidden",
-                boxShadow: "0 6px 20px rgba(15,23,42,0.05)",
-              }}>
-                <div style={{
-                  background: area.pastel,
-                  borderBottom: `1px solid ${area.color}24`,
-                  padding: "13px 16px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: area.color }}>{area.nombre}</div>
-                    {area.fija && <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>Posición fija</div>}
-                  </div>
-                  <span style={{
-                    background: "rgba(255,255,255,0.7)",
-                    border: `1px solid ${area.color}40`,
-                    borderRadius: 20,
-                    padding: "3px 10px",
-                    fontSize: 11,
-                    color: area.color,
-                    fontWeight: 700,
-                  }}>
-                    {area.funcionarias.length}/{area.cupo}
-                  </span>
-                </div>
-                <div style={{ padding: 12 }}>
-                  {area.funcionarias.length === 0 ? (
-                    <div style={{ color: "#94a3b8", fontSize: 12, textAlign: "center", padding: "10px 0", fontStyle: "italic" }}>
-                      Sin asignar
-                    </div>
-                  ) : area.funcionarias.map(f => (
-                    <div key={f.nombre} style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 9,
-                      padding: "7px 9px",
-                      background: "#f8fafc",
-                      border: "1px solid #eef2f7",
-                      borderRadius: 8,
-                      marginBottom: 5,
-                    }}>
-                      <div style={{
-                        width: 30, height: 30, borderRadius: "50%",
-                        background: area.pastel, border: `1px solid ${area.color}35`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 12, fontWeight: 700, color: area.color, flexShrink: 0,
-                      }}>
-                        {f.nombre.charAt(0)}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{f.nombre}</div>
-                        <div style={{ fontSize: 10, color: "#64748b" }}>
-                          {esJefa && CONTRATO_LABEL[f.contrato]}
-                          {esJefa && obtenerAsignacionFija(f, trimestre) && f.condicion !== "fija_pyxis" &&
-                            ` · 📌 ${f.fijaLabel || `Fija en ${getAreaInfo(obtenerAsignacionFija(f, trimestre))?.nombre}`}`}
-                        </div>
-                      </div>
-                      {esJefa && !f.condicion && !obtenerAsignacionFija(f, trimestre) && trimestre !== 0 && (
-                        <button
-                          onClick={() => setEditando({ nombre: f.nombre, trimestreIdx: trimestre })}
-                          title="Cambiar área"
-                          style={{
-                            background: "#ffffff",
-                            border: "1px solid #dbe3ee",
-                            color: "#94a3b8",
-                            borderRadius: 6,
-                            padding: "3px 7px",
-                            cursor: "pointer",
-                            fontSize: 11,
-                          }}
-                        >
-                          ✏️
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: "0 5px" }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left", padding: "8px 14px", color: "#64748b", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
-                    Funcionaria
-                  </th>
-                  {trimestresVisibles.map(i => (
-                    <th key={i} style={{
-                      textAlign: "center",
-                      padding: "8px 12px",
-                      color: i === trimestre ? "#4f46e5" : "#64748b",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: 1,
-                    }}>
-                      {TRIMESTRES[i].corto}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {FUNCIONARIAS.map(f => (
-                  <tr key={f.nombre}>
-                    <td style={{
-                      padding: "9px 14px",
-                      background: "#ffffff",
-                      borderTop: "1px solid #eef2f7",
-                      borderBottom: "1px solid #eef2f7",
-                      borderRadius: "10px 0 0 10px",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "#1e293b",
-                      whiteSpace: "nowrap",
-                    }}>
-                      {f.nombre}
-                    </td>
-                    {trimestresVisibles.map(i => {
-                      const rot = rotaciones[i] || {};
-                      const areaId = rot[f.nombre];
-                      const area = getAreaInfo(areaId);
-                      const esActual = i === trimestre;
-                      return (
-                        <td key={i} style={{
-                          padding: "9px 8px",
-                          background: esActual ? "#eef2ff" : "#ffffff",
-                          borderLeft: "1px solid #eef2f7",
-                          borderRadius: i === trimestresVisibles[trimestresVisibles.length - 1] ? "0 10px 10px 0" : 0,
-                          textAlign: "center",
-                        }}>
-                          {area && (
-                            <span style={{
-                              display: "inline-block",
-                              background: area.pastel,
-                              border: `1px solid ${area.color}35`,
-                              color: area.color,
-                              borderRadius: 6,
-                              padding: "3px 7px",
-                              fontSize: 10,
-                              fontWeight: 600,
-                              whiteSpace: "nowrap",
-                            }}>
-                              {area.nombre.replace("Farmacia ", "")}
-                            </span>
-                          )}
-                          {esJefa && !f.condicion && !obtenerAsignacionFija(f, i) && esActual && i !== 0 && (
-                            <button
-                              onClick={() => setEditando({ nombre: f.nombre, trimestreIdx: i })}
-                              style={{
-                                display: "block",
-                                margin: "4px auto 0",
-                                background: "transparent",
-                                border: "none",
-                                color: "#475569",
-                                cursor: "pointer",
-                                fontSize: 10,
-                              }}
-                            >
-                              ✏️
-                            </button>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Leyenda — solo visible para la jefa */}
-        {esJefa && (
-        <div style={{
-          marginTop: 20,
-          padding: "14px 18px",
-          background: "#ffffff",
-          borderRadius: 12,
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
-          display: "flex",
-          gap: 16,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}>
-          <span style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: 2, fontWeight: 700 }}>Reglas</span>
-          {[
-            "⏱ Mín. 3 meses – Máx. 6 meses por área",
-            "🚫 No consecutivo Satélite ↔ Crónico",
-            "🔒 PYXIS fija (Jacqueline & Marcela)",
-            "📌 Kimberly: Crónico desde julio 2026 hasta marzo 2027",
-            "📌 Jul–Dic: Génesis en Crónico",
-            "📌 Jul–Dic: Cinthya en Satélite y Yamilet en Domicilio",
-            "🔒 Judith fija en Soporte hasta diciembre 2026",
-          ].map((r, i) => (
-            <span key={i} style={{ fontSize: 11, color: "#94a3b8" }}>{r}</span>
-          ))}
-          {[
-            "💼 Honorarios y Compra de Servicios pueden ir a Soporte",
-          ].map((r, i) => (
-            <span key={"jefa" + i} style={{ fontSize: 11, color: "#818cf8" }}>{r}</span>
-          ))}
-        </div>
-        )}
-      </div>
-
-      {/* Modal de edición manual — solo jefa, no aplica a T1 (fijo) */}
-      {editando && esJefa && (
-        <div style={{
-          position: "fixed", inset: 0,
-          background: "rgba(0,0,0,0.7)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 100,
-        }}
-          onClick={() => setEditando(null)}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: "#ffffff",
-              border: "1px solid #e2e8f0",
-              borderRadius: 16,
-              padding: 28,
-              width: 340,
-            }}
-          >
-            <h3 style={{ margin: "0 0 6px", fontSize: 15, color: "#1e293b" }}>
-              Cambiar área
-            </h3>
-            <p style={{ margin: "0 0 18px", fontSize: 12, color: "#94a3b8" }}>
-              {editando.nombre} · {TRIMESTRES[editando.trimestreIdx].corto}
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {AREAS.filter(a => {
-                if (a.fija) return false;
-                const func = FUNCIONARIAS.find(f => f.nombre === editando.nombre);
-                if (a.id === "soporte" && !puedeIrASoporte(func)) return false;
-                return true;
-              }).map(area => (
-                <button
-                  key={area.id}
-                  onClick={() => cambiarArea(editando.nombre, editando.trimestreIdx, area.id)}
-                  style={{
-                    background: rotaciones[editando.trimestreIdx]?.[editando.nombre] === area.id
-                      ? `${area.color}33`
-                      : "#f8fafc",
-                    border: `1px solid ${area.color}44`,
-                    color: area.color,
-                    borderRadius: 9,
-                    padding: "10px 14px",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontSize: 13,
-                    fontWeight: 600,
-                  }}
-                >
-                  {area.nombre}
-                  {rotaciones[editando.trimestreIdx]?.[editando.nombre] === area.id && " ✓"}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setEditando(null)}
-              style={{
-                marginTop: 14,
-                width: "100%",
-                background: "transparent",
-                border: "1px solid #cbd5e1",
-                color: "#64748b",
-                borderRadius: 9,
-                padding: "8px",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
+  const actualId = periodoInicial(datos.periodos);
+  const semestre = datos.periodos.find(p => p.id === actualId)?.semestre;
+  const periodosVisibles = esJefa ? datos.periodos : datos.periodos.filter(p => p.semestre === semestre);
+  const periodo = datos.periodos.find(p => p.id === periodoId) || periodosVisibles[0] || datos.periodos[0];
+  const asignaciones = useMemo(
+    () => datos.asignaciones[periodo?.id] || {},
+    [datos.asignaciones, periodo?.id],
   );
+  const agrupadas = useMemo(() => datos.areas.map(a => ({ ...a, personas: datos.personas.filter(p => asignaciones[p.id] === a.id) })), [datos.areas, datos.personas, asignaciones]);
+
+  if (esperando && !modo) return <main className="loading">Cargando rotaciones…</main>;
+  if (!modo) return <Login onLogin={login} onPublico={() => setModo("tens")} error={error} waiting={esperando} servidor={servidor} />;
+
+  const acciones = {
+    persona: setPersonaForm,
+    eliminarPersona(id) { if (!window.confirm("¿Eliminar esta persona y todas sus asignaciones?")) return; const n = copiar(datos); n.personas = n.personas.filter(p => p.id !== id); Object.values(n.asignaciones).forEach(m => delete m[id]); guardar(n, "Persona eliminada"); },
+    agregarArea() { const nombre = window.prompt("Nombre de la nueva farmacia o área:"); if (!nombre?.trim()) return; const n = copiar(datos); n.areas.push({ id: crearId(nombre), nombre: nombre.trim(), color: "#3b718a", pastel: "#eaf7fb", cupos: Object.fromEntries(n.periodos.map(p => [p.id, 1])) }); guardar(n, "Área agregada"); },
+    actualizarArea(id, cambios) { const n = copiar(datos); n.areas = n.areas.map(a => a.id === id ? { ...a, ...cambios } : a); guardar(n, "Área actualizada"); },
+    eliminarArea(id) { if (!window.confirm("¿Eliminar esta área? Las personas asignadas quedarán sin área.")) return; const n = copiar(datos); n.areas = n.areas.filter(a => a.id !== id); Object.values(n.asignaciones).forEach(m => Object.keys(m).forEach(pid => { if (m[pid] === id) delete m[pid]; })); guardar(n, "Área eliminada"); },
+    agregarPeriodo() { const label = window.prompt("Nombre del período (ej.: T5 · Abril–Junio 2027):"); if (!label?.trim()) return; const n = copiar(datos); const id = crearId(label); n.periodos.push({ id, label: label.trim(), corto: label.replace(/^T\d+\s*·?\s*/, ""), semestre: 1 }); n.asignaciones[id] = {}; n.areas.forEach(a => { a.cupos[id] = 1; }); guardar(n, "Período agregado"); setPeriodoId(id); },
+    actualizarPeriodo(id, cambios) { const n = copiar(datos); n.periodos = n.periodos.map(p => p.id === id ? { ...p, ...cambios } : p); guardar(n, "Período actualizado"); },
+    eliminarPeriodo(id) { if (datos.periodos.length === 1 || !window.confirm("¿Eliminar este período y su rotación?")) return; const n = copiar(datos); n.periodos = n.periodos.filter(p => p.id !== id); delete n.asignaciones[id]; n.areas.forEach(a => delete a.cupos[id]); guardar(n, "Período eliminado"); setPeriodoId(n.periodos[0].id); },
+    agregarRegla() { const n = copiar(datos); n.reglas.push("Nueva regla"); guardar(n, "Regla agregada"); },
+    actualizarRegla(i, value) { const n = copiar(datos); n.reglas[i] = value; guardar(n, "Regla actualizada"); },
+    eliminarRegla(i) { const n = copiar(datos); n.reglas.splice(i,1); guardar(n, "Regla eliminada"); },
+    password: () => setClaveForm({ currentPassword: "", newPassword: "", confirmPassword: "" }),
+  };
+
+  function guardarPersona(form) { const n = copiar(datos); if (form.id) n.personas = n.personas.map(p => p.id === form.id ? { ...p, ...form } : p); else n.personas.push({ ...form, id: crearId(form.nombre) }); guardar(n, "Personal actualizado"); setPersonaForm(null); }
+  function mover(personaId, areaId) { const n = copiar(datos); n.asignaciones[periodo.id] ||= {}; if (areaId) n.asignaciones[periodo.id][personaId] = areaId; else delete n.asignaciones[periodo.id][personaId]; guardar(n, "Rotación actualizada"); setMoviendo(null); }
+  async function cambiarClave() { setEstado("Guardando contraseña…"); try { if (!servidor) throw new Error("Disponible solo en el servidor"); await api("change-password", { method: "POST", body: JSON.stringify(claveForm) }); setClaveForm(null); setEstado("✓ Contraseña actualizada"); } catch (e) { setEstado(`⚠ ${e.message}`); } }
+
+  return <div className="app-shell">
+    <header className="topbar"><div><p className="eyebrow">Hospital · Equipo Farmacia</p><h1>Rotación TENS 2026</h1></div><div className="header-actions"><span className={`badge ${esJefa ? "admin" : "reader"}`}>{esJefa ? "🔐 Jefa de Farmacia" : "👁 TENS — Solo lectura"}</span>{estado && <span className="status">{estado}</span>}{esJefa && <button className={seccion === "administracion" ? "primary" : "secondary"} onClick={() => setSeccion(s => s === "rotacion" ? "administracion" : "rotacion")}>{seccion === "rotacion" ? "⚙ Administrar" : "← Ver rotación"}</button>}{seccion === "rotacion" && <button className="secondary" onClick={() => setVista(v => v === "area" ? "persona" : "area")}>{vista === "area" ? "👤 Ver por funcionaria" : "🏥 Ver por área"}</button>}<button className="secondary" onClick={logout}>Salir</button></div></header>
+
+    {seccion === "administracion" ? <AdminPanel datos={datos} acciones={acciones} servidor={servidor} /> : <><nav className="period-tabs">{periodosVisibles.map(p => <button key={p.id} className={p.id === periodo.id ? "active" : ""} onClick={() => setPeriodoId(p.id)}>{p.label}</button>)}</nav><main className="content">
+      {vista === "area" ? <div className="area-grid">{agrupadas.map(a => <section className="area-card" key={a.id} style={{ "--accent": a.color, "--pastel": a.pastel }}><div className="area-header"><div><strong>{a.nombre}</strong>{a.id === "pyxis" && <small>Posición fija</small>}</div><span>{a.personas.length}/{Number(a.cupos?.[periodo.id] || 0)}</span></div><div className="people-list">{!a.personas.length && <p className="empty">Sin asignar</p>}{a.personas.map(p => <article className="person-row" key={p.id}><i>{p.nombre.charAt(0)}</i><div><strong>{p.nombre}</strong>{esJefa && <small>{CONTRATOS[p.contrato]}{p.nota && ` · 📌 ${p.nota}`}</small>}</div>{esJefa && <button className="icon-button" onClick={() => setMoviendo(p)}>✏️</button>}</article>)}</div></section>)}</div> : <div className="table-wrap"><table><thead><tr><th>Funcionaria</th>{periodosVisibles.map(p => <th key={p.id}>{p.corto}</th>)}</tr></thead><tbody>{datos.personas.map(persona => <tr key={persona.id}><td>{persona.nombre}</td>{periodosVisibles.map(p => { const a = datos.areas.find(x => x.id === datos.asignaciones[p.id]?.[persona.id]); return <td key={p.id}><span className="area-pill" style={{ "--accent": a?.color || "#64748b", "--pastel": a?.pastel || "#f1f5f9" }}>{a?.nombre.replace("Farmacia ", "") || "Sin asignar"}</span></td>; })}</tr>)}</tbody></table></div>}
+      <section className="rules"><strong>REGLAS</strong>{datos.reglas.map((r,i) => <span key={i}>📌 {r}</span>)}</section>
+    </main></>}
+
+    {moviendo && <Modal title={`Mover a ${moviendo.nombre}`} onClose={() => setMoviendo(null)}><div className="choice-list"><button onClick={() => mover(moviendo.id, "")}>Sin asignar</button>{datos.areas.map(a => <button key={a.id} className={asignaciones[moviendo.id] === a.id ? "selected" : ""} style={{ "--accent": a.color, "--pastel": a.pastel }} onClick={() => mover(moviendo.id, a.id)}>{a.nombre}{asignaciones[moviendo.id] === a.id && " ✓"}</button>)}</div></Modal>}
+    {personaForm && <PersonaModal persona={personaForm} onClose={() => setPersonaForm(null)} onSave={guardarPersona} />}
+    {claveForm && <Modal title="Cambiar contraseña" onClose={() => setClaveForm(null)}><div className="form-grid"><label>Contraseña actual<input type="password" value={claveForm.currentPassword} onChange={e => setClaveForm({ ...claveForm, currentPassword: e.target.value })} /></label><label>Nueva contraseña<input type="password" value={claveForm.newPassword} onChange={e => setClaveForm({ ...claveForm, newPassword: e.target.value })} /></label><label>Repetir contraseña<input type="password" value={claveForm.confirmPassword} onChange={e => setClaveForm({ ...claveForm, confirmPassword: e.target.value })} /></label><button className="primary" disabled={!claveForm.newPassword || claveForm.newPassword !== claveForm.confirmPassword} onClick={cambiarClave}>Guardar contraseña</button></div></Modal>}
+  </div>;
 }
