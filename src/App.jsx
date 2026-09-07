@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 // CONTRASEÑA DE LA JEFA — cámbiala aquí
 // ============================================================
 const CLAVE_JEFA = "farmacia2026";
-const STORAGE_KEY = "rotacion-farmacia-plan-v2";
-const SEMILLA_INICIAL = 20260828;
+const STORAGE_KEY = "rotacion-farmacia-plan-v3";
+const SEMILLA_INICIAL = 20260907;
 
 // contrato: "honorario" | "contrata" | "compra_servicios" | "das_chue"
 // t1: asignación FIJA de Abril-Junio 2026, según tabla entregada por la jefa
@@ -22,22 +22,41 @@ const FUNCIONARIAS = [
   { nombre: "Cinthya Pacheco Ibañez", condicion: null, contrato: "contrata", t1: "satelite", fijas: { 1: "satelite", 2: "satelite" }, fijaLabel: "Fija en Satélite hasta diciembre" },
   { nombre: "Jacqueline Medina Quijada", condicion: "fija_pyxis", contrato: "contrata", t1: "pyxis" },
   { nombre: "Yassier Lagos Bernal", condicion: null, contrato: "compra_servicios", t1: "domicilio" },
-  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite", fijas: { 1: "domicilio", 2: "domicilio" }, fijaLabel: "Fija en Domicilio hasta diciembre" },
+  { nombre: "Jocelyn Valdes Cartes", condicion: null, contrato: "compra_servicios", t1: "satelite" },
   { nombre: "Génesis Riveros Ramirez", condicion: null, contrato: "contrata", t1: "hospitalizados", fijas: { 1: "cronico", 2: "cronico" }, fijaLabel: "Fija en Crónico hasta diciembre" },
   { nombre: "Judith Aravena Peña", condicion: null, contrato: "honorario", t1: "cronico", fijas: { 1: "soporte", 2: "soporte" }, fijaLabel: "Fija en Soporte hasta diciembre" },
   { nombre: "Marcela Navarro", condicion: "fija_pyxis", contrato: "honorario", t1: "pyxis" },
-  { nombre: "Yamilet Jara", condicion: "solo_satelite_cronico", contrato: "das_chue", t1: "cronico" },
+  { nombre: "Yamilet Jara", condicion: null, contrato: "das_chue", t1: "cronico", fijas: { 1: "domicilio", 2: "domicilio" }, fijaLabel: "Fija en Domicilio de julio a diciembre" },
 ];
 
 const AREAS = [
-  { id: "soporte", nombre: "Soporte", cupo: 1, color: "#6366f1" },
-  { id: "hospitalizados", nombre: "Farmacia Hospitalizados", cupo: 2, color: "#0ea5e9" },
-  { id: "envasado", nombre: "Envasado", cupo: 1, color: "#f59e0b" },
-  { id: "domicilio", nombre: "Farmacia Domicilio", cupo: 3, color: "#10b981" },
-  { id: "pyxis", nombre: "PYXIS", cupo: 2, color: "#8b5cf6", fija: true },
-  { id: "cronico", nombre: "Farmacia Crónico", cupo: 4, color: "#ec4899" },
-  { id: "satelite", nombre: "Farmacia Satélite", cupo: 2, color: "#f97316" },
+  { id: "soporte", nombre: "Soporte", cupos: [1, 1, 1, 1], color: "#5b5f97", pastel: "#eef0ff" },
+  { id: "hospitalizados", nombre: "Farmacia Hospitalizados", cupos: [2, 2, 2, 2], color: "#2673a6", pastel: "#eaf6ff" },
+  { id: "envasado", nombre: "Envasado", cupos: [1, 1, 1, 1], color: "#a96812", pastel: "#fff4da" },
+  { id: "domicilio", nombre: "Farmacia Domicilio", cupos: [3, 4, 4, 3], color: "#267c68", pastel: "#e9f8f3" },
+  { id: "pyxis", nombre: "PYXIS", cupos: [2, 2, 2, 2], color: "#7252a3", pastel: "#f3eeff", fija: true },
+  { id: "cronico", nombre: "Farmacia Crónico", cupos: [5, 5, 5, 5], color: "#a94872", pastel: "#fdebf4" },
+  { id: "satelite", nombre: "Farmacia Satélite", cupos: [2, 1, 1, 2], color: "#ad5b2c", pastel: "#fff0e7" },
 ];
+
+const ROTACION_JULIO_DICIEMBRE = {
+  "Judith Aravena Peña": "soporte",
+  "Daniela Barra Escobar": "hospitalizados",
+  "Sarai Gazmuri": "hospitalizados",
+  "Mónica Chamblas Velasquez": "envasado",
+  "Jocelyn Valdes Cartes": "domicilio",
+  "Paola Cid Martínez": "domicilio",
+  "Macarena Villegas Flores": "domicilio",
+  "Yamilet Jara": "domicilio",
+  "Jacqueline Medina Quijada": "pyxis",
+  "Marcela Navarro": "pyxis",
+  "Kimberly Bravo González": "cronico",
+  "Flor Martinez": "cronico",
+  "Génesis Riveros Ramirez": "cronico",
+  "Yassier Lagos Bernal": "cronico",
+  "Roxana Gutiérrez Quiñimil": "cronico",
+  "Cinthya Pacheco Ibañez": "satelite",
+};
 
 const TRIMESTRES = [
   { label: "T1 · Abril–Junio 2026", corto: "Abr–Jun 2026", semestre: 1 },
@@ -65,13 +84,16 @@ function obtenerAsignacionFija(func, trimestreIdx) {
   return func.fijas?.[trimestreIdx] || null;
 }
 
+function obtenerCupoArea(area, trimestreIdx) {
+  return area.cupos?.[trimestreIdx] ?? area.cupos?.[0] ?? 0;
+}
+
 function puedeIrASoporte(func) {
   return func.contrato === "honorario" || func.contrato === "compra_servicios";
 }
 
 function puedeRotar(func, areaId, historial) {
   if (func.condicion === "fija_pyxis") return areaId === "pyxis";
-  if (func.condicion === "solo_satelite_cronico") return areaId === "satelite" || areaId === "cronico";
   if (areaId === "pyxis") return false;
   // Soporte: Honorarios y Compra de Servicios pueden realizar este turno.
   if (areaId === "soporte" && !puedeIrASoporte(func)) return false;
@@ -106,6 +128,11 @@ function generarRotacion(trimestreIdx, rotacionAnterior, aleatorio = Math.random
     return asignacion;
   }
 
+  // Distribución acordada con la jefatura para julio-diciembre de 2026.
+  if (trimestreIdx === 1 || trimestreIdx === 2) {
+    return { ...ROTACION_JULIO_DICIEMBRE };
+  }
+
   // Aplicar posiciones fijas permanentes o definidas para este trimestre.
   FUNCIONARIAS.forEach(f => {
     const areaFija = obtenerAsignacionFija(f, trimestreIdx);
@@ -118,9 +145,7 @@ function generarRotacion(trimestreIdx, rotacionAnterior, aleatorio = Math.random
   const libres = FUNCIONARIAS.filter(f => !obtenerAsignacionFija(f, trimestreIdx));
   const areasRotables = AREAS.filter(a => !a.fija);
 
-  const yamilet = libres.find(f => f.condicion === "solo_satelite_cronico");
-  const resto = libres.filter(f => f.condicion !== "solo_satelite_cronico");
-  const ordenadas = yamilet ? [yamilet, ...resto] : resto;
+  const ordenadas = libres;
 
   ordenadas.forEach(func => {
     const historial = rotacionAnterior
@@ -128,7 +153,7 @@ function generarRotacion(trimestreIdx, rotacionAnterior, aleatorio = Math.random
       : [];
 
     let candidatas = areasRotables.filter(a => {
-      const llena = ocupadas[a.id].length >= a.cupo;
+      const llena = ocupadas[a.id].length >= obtenerCupoArea(a, trimestreIdx);
       const puede = puedeRotar(func, a.id, historial);
       const mismaQueAnterior = historial[historial.length - 1] === a.id;
       return !llena && puede && !mismaQueAnterior;
@@ -136,7 +161,7 @@ function generarRotacion(trimestreIdx, rotacionAnterior, aleatorio = Math.random
 
     if (candidatas.length === 0) {
       candidatas = areasRotables.filter(a =>
-        ocupadas[a.id].length < a.cupo && puedeRotar(func, a.id, historial)
+        ocupadas[a.id].length < obtenerCupoArea(a, trimestreIdx) && puedeRotar(func, a.id, historial)
       );
     }
 
@@ -191,25 +216,26 @@ function LoginScreen({ onLogin, error }) {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
+      background: "linear-gradient(145deg, #f8fafc 0%, #eef2ff 50%, #f0fdfa 100%)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       fontFamily: "'DM Sans','Segoe UI',sans-serif",
     }}>
       <div style={{
-        background: "rgba(255,255,255,0.05)",
-        border: "1px solid rgba(255,255,255,0.1)",
+        background: "rgba(255,255,255,0.94)",
+        border: "1px solid #e2e8f0",
         borderRadius: 20,
         padding: "40px 48px",
         width: 340,
         textAlign: "center",
+        boxShadow: "0 24px 70px rgba(79,70,229,0.12)",
       }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>🔐</div>
         <div style={{ fontSize: 11, letterSpacing: 4, color: "#818cf8", textTransform: "uppercase", marginBottom: 6 }}>
           Acceso Jefa de Farmacia
         </div>
-        <h2 style={{ color: "#f1f5f9", margin: "0 0 28px", fontSize: 20, fontWeight: 700 }}>
+        <h2 style={{ color: "#1e293b", margin: "0 0 28px", fontSize: 20, fontWeight: 700 }}>
           Ingresa tu clave
         </h2>
         <input
@@ -221,10 +247,10 @@ function LoginScreen({ onLogin, error }) {
           style={{
             width: "100%",
             padding: "12px 16px",
-            background: "rgba(255,255,255,0.07)",
-            border: error ? "1px solid #f87171" : "1px solid rgba(255,255,255,0.15)",
+            background: "#f8fafc",
+            border: error ? "1px solid #ef4444" : "1px solid #cbd5e1",
             borderRadius: 10,
-            color: "#f1f5f9",
+            color: "#1e293b",
             fontSize: 15,
             marginBottom: 8,
             boxSizing: "border-box",
@@ -358,20 +384,22 @@ export default function App() {
   const rotacionActual = rotaciones[trimestre] || {};
   const agrupadaPorArea = AREAS.map(area => ({
     ...area,
+    cupo: obtenerCupoArea(area, trimestre),
     funcionarias: FUNCIONARIAS.filter(f => rotacionActual[f.nombre] === area.id),
   }));
 
   return (
     <div style={{
       minHeight: "100vh",
-      background: "linear-gradient(135deg,#0f172a 0%,#1e1b4b 50%,#0f172a 100%)",
+      background: "linear-gradient(180deg,#f8fafc 0%,#f3f6fb 100%)",
       fontFamily: "'DM Sans','Segoe UI',sans-serif",
-      color: "#f1f5f9",
+      color: "#1e293b",
     }}>
       {/* Header */}
       <div style={{
-        background: "rgba(255,255,255,0.03)",
-        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.96)",
+        borderBottom: "1px solid #e2e8f0",
+        boxShadow: "0 1px 8px rgba(15,23,42,0.04)",
         padding: "20px 28px",
         display: "flex",
         justifyContent: "space-between",
@@ -380,7 +408,7 @@ export default function App() {
         gap: 12,
       }}>
         <div>
-          <div style={{ fontSize: 10, letterSpacing: 4, color: "#818cf8", textTransform: "uppercase", marginBottom: 4 }}>
+          <div style={{ fontSize: 10, letterSpacing: 4, color: "#6366f1", textTransform: "uppercase", marginBottom: 4 }}>
             Hospital · Equipo Farmacia
           </div>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Rotación TENS 2026</h1>
@@ -388,9 +416,9 @@ export default function App() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{
-            background: esJefa ? "rgba(99,102,241,0.2)" : "rgba(16,185,129,0.15)",
-            border: `1px solid ${esJefa ? "rgba(99,102,241,0.4)" : "rgba(16,185,129,0.3)"}`,
-            color: esJefa ? "#818cf8" : "#34d399",
+            background: esJefa ? "#eef2ff" : "#ecfdf5",
+            border: `1px solid ${esJefa ? "#c7d2fe" : "#a7f3d0"}`,
+            color: esJefa ? "#4f46e5" : "#047857",
             borderRadius: 20,
             padding: "4px 12px",
             fontSize: 11,
@@ -401,15 +429,15 @@ export default function App() {
           </span>
 
           {guardado && (
-            <span style={{ color: "#34d399", fontSize: 12, fontWeight: 600 }}>✓ Cambios guardados</span>
+            <span style={{ color: "#059669", fontSize: 12, fontWeight: 600 }}>✓ Cambios guardados</span>
           )}
 
           <button
             onClick={() => setVista(v => v === "area" ? "funcionaria" : "area")}
             style={{
-              background: "rgba(99,102,241,0.15)",
-              border: "1px solid rgba(99,102,241,0.3)",
-              color: "#818cf8",
+              background: "#eef2ff",
+              border: "1px solid #c7d2fe",
+              color: "#4f46e5",
               borderRadius: 8,
               padding: "7px 14px",
               cursor: "pointer",
@@ -426,7 +454,7 @@ export default function App() {
               onClick={regenerar}
               disabled={loading}
               style={{
-                background: loading ? "rgba(99,102,241,0.2)" : "rgba(99,102,241,0.9)",
+                background: loading ? "#c7d2fe" : "#6366f1",
                 border: "none",
                 color: "white",
                 borderRadius: 8,
@@ -444,7 +472,7 @@ export default function App() {
             onClick={() => setModo(null)}
             style={{
               background: "transparent",
-              border: "1px solid rgba(255,255,255,0.1)",
+              border: "1px solid #cbd5e1",
               color: "#64748b",
               borderRadius: 8,
               padding: "7px 12px",
@@ -466,16 +494,16 @@ export default function App() {
             style={{
               background: trimestre === i
                 ? "linear-gradient(135deg,#6366f1,#818cf8)"
-                : "rgba(255,255,255,0.05)",
-              border: trimestre === i ? "none" : "1px solid rgba(255,255,255,0.1)",
-              color: trimestre === i ? "white" : "#94a3b8",
+                : "#ffffff",
+              border: trimestre === i ? "none" : "1px solid #dbe3ee",
+              color: trimestre === i ? "white" : "#64748b",
               borderRadius: 10,
               padding: "9px 16px",
               cursor: "pointer",
               fontSize: 12,
               fontWeight: 600,
               whiteSpace: "nowrap",
-              boxShadow: trimestre === i ? "0 4px 15px rgba(99,102,241,0.4)" : "none",
+              boxShadow: trimestre === i ? "0 4px 15px rgba(99,102,241,0.24)" : "0 1px 3px rgba(15,23,42,0.04)",
             }}
           >
             {TRIMESTRES[i].label}
@@ -488,14 +516,15 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 14 }}>
             {agrupadaPorArea.map(area => (
               <div key={area.id} style={{
-                background: "rgba(255,255,255,0.04)",
-                border: `1px solid ${area.color}33`,
+                background: "#ffffff",
+                border: `1px solid ${area.color}30`,
                 borderRadius: 14,
                 overflow: "hidden",
+                boxShadow: "0 6px 20px rgba(15,23,42,0.05)",
               }}>
                 <div style={{
-                  background: `linear-gradient(135deg,${area.color}22,${area.color}11)`,
-                  borderBottom: `1px solid ${area.color}33`,
+                  background: area.pastel,
+                  borderBottom: `1px solid ${area.color}24`,
                   padding: "13px 16px",
                   display: "flex",
                   justifyContent: "space-between",
@@ -506,8 +535,8 @@ export default function App() {
                     {area.fija && <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>Posición fija</div>}
                   </div>
                   <span style={{
-                    background: `${area.color}22`,
-                    border: `1px solid ${area.color}44`,
+                    background: "rgba(255,255,255,0.7)",
+                    border: `1px solid ${area.color}40`,
                     borderRadius: 20,
                     padding: "3px 10px",
                     fontSize: 11,
@@ -519,7 +548,7 @@ export default function App() {
                 </div>
                 <div style={{ padding: 12 }}>
                   {area.funcionarias.length === 0 ? (
-                    <div style={{ color: "#475569", fontSize: 12, textAlign: "center", padding: "10px 0", fontStyle: "italic" }}>
+                    <div style={{ color: "#94a3b8", fontSize: 12, textAlign: "center", padding: "10px 0", fontStyle: "italic" }}>
                       Sin asignar
                     </div>
                   ) : area.funcionarias.map(f => (
@@ -528,20 +557,21 @@ export default function App() {
                       alignItems: "center",
                       gap: 9,
                       padding: "7px 9px",
-                      background: "rgba(255,255,255,0.03)",
+                      background: "#f8fafc",
+                      border: "1px solid #eef2f7",
                       borderRadius: 8,
                       marginBottom: 5,
                     }}>
                       <div style={{
                         width: 30, height: 30, borderRadius: "50%",
-                        background: `${area.color}22`, border: `1px solid ${area.color}44`,
+                        background: area.pastel, border: `1px solid ${area.color}35`,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: 12, fontWeight: 700, color: area.color, flexShrink: 0,
                       }}>
                         {f.nombre.charAt(0)}
                       </div>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0" }}>{f.nombre}</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{f.nombre}</div>
                         <div style={{ fontSize: 10, color: "#64748b" }}>
                           {esJefa && CONTRATO_LABEL[f.contrato]}
                           {esJefa && obtenerAsignacionFija(f, trimestre) && f.condicion !== "fija_pyxis" &&
@@ -553,8 +583,8 @@ export default function App() {
                           onClick={() => setEditando({ nombre: f.nombre, trimestreIdx: trimestre })}
                           title="Cambiar área"
                           style={{
-                            background: "rgba(255,255,255,0.05)",
-                            border: "1px solid rgba(255,255,255,0.1)",
+                            background: "#ffffff",
+                            border: "1px solid #dbe3ee",
                             color: "#94a3b8",
                             borderRadius: 6,
                             padding: "3px 7px",
@@ -583,7 +613,7 @@ export default function App() {
                     <th key={i} style={{
                       textAlign: "center",
                       padding: "8px 12px",
-                      color: i === trimestre ? "#818cf8" : "#64748b",
+                      color: i === trimestre ? "#4f46e5" : "#64748b",
                       fontSize: 11,
                       fontWeight: 600,
                       textTransform: "uppercase",
@@ -599,11 +629,13 @@ export default function App() {
                   <tr key={f.nombre}>
                     <td style={{
                       padding: "9px 14px",
-                      background: "rgba(255,255,255,0.04)",
+                      background: "#ffffff",
+                      borderTop: "1px solid #eef2f7",
+                      borderBottom: "1px solid #eef2f7",
                       borderRadius: "10px 0 0 10px",
                       fontSize: 12,
                       fontWeight: 600,
-                      color: "#e2e8f0",
+                      color: "#1e293b",
                       whiteSpace: "nowrap",
                     }}>
                       {f.nombre}
@@ -616,16 +648,16 @@ export default function App() {
                       return (
                         <td key={i} style={{
                           padding: "9px 8px",
-                          background: esActual ? "rgba(99,102,241,0.07)" : "rgba(255,255,255,0.02)",
-                          borderLeft: "1px solid rgba(255,255,255,0.03)",
+                          background: esActual ? "#eef2ff" : "#ffffff",
+                          borderLeft: "1px solid #eef2f7",
                           borderRadius: i === trimestresVisibles[trimestresVisibles.length - 1] ? "0 10px 10px 0" : 0,
                           textAlign: "center",
                         }}>
                           {area && (
                             <span style={{
                               display: "inline-block",
-                              background: `${area.color}22`,
-                              border: `1px solid ${area.color}44`,
+                              background: area.pastel,
+                              border: `1px solid ${area.color}35`,
                               color: area.color,
                               borderRadius: 6,
                               padding: "3px 7px",
@@ -667,9 +699,10 @@ export default function App() {
         <div style={{
           marginTop: 20,
           padding: "14px 18px",
-          background: "rgba(255,255,255,0.03)",
+          background: "#ffffff",
           borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.07)",
+          border: "1px solid #e2e8f0",
+          boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
           display: "flex",
           gap: 16,
           flexWrap: "wrap",
@@ -680,10 +713,9 @@ export default function App() {
             "⏱ Mín. 3 meses – Máx. 6 meses por área",
             "🚫 No consecutivo Satélite ↔ Crónico",
             "🔒 PYXIS fija (Jacqueline & Marcela)",
-            "⚠️ Yamilet: solo Satélite y Crónico",
             "📌 Kimberly: Crónico desde julio 2026 hasta marzo 2027",
             "📌 Jul–Dic: Génesis en Crónico",
-            "📌 Jul–Dic: Cinthya en Satélite y Jocelyn en Domicilio",
+            "📌 Jul–Dic: Cinthya en Satélite y Yamilet en Domicilio",
             "🔒 Judith fija en Soporte hasta diciembre 2026",
           ].map((r, i) => (
             <span key={i} style={{ fontSize: 11, color: "#94a3b8" }}>{r}</span>
@@ -710,14 +742,14 @@ export default function App() {
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              background: "#1e1b4b",
-              border: "1px solid rgba(255,255,255,0.12)",
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
               borderRadius: 16,
               padding: 28,
               width: 340,
             }}
           >
-            <h3 style={{ margin: "0 0 6px", fontSize: 15, color: "#f1f5f9" }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 15, color: "#1e293b" }}>
               Cambiar área
             </h3>
             <p style={{ margin: "0 0 18px", fontSize: 12, color: "#94a3b8" }}>
@@ -736,7 +768,7 @@ export default function App() {
                   style={{
                     background: rotaciones[editando.trimestreIdx]?.[editando.nombre] === area.id
                       ? `${area.color}33`
-                      : "rgba(255,255,255,0.05)",
+                      : "#f8fafc",
                     border: `1px solid ${area.color}44`,
                     color: area.color,
                     borderRadius: 9,
@@ -758,7 +790,7 @@ export default function App() {
                 marginTop: 14,
                 width: "100%",
                 background: "transparent",
-                border: "1px solid rgba(255,255,255,0.1)",
+                border: "1px solid #cbd5e1",
                 color: "#64748b",
                 borderRadius: 9,
                 padding: "8px",
