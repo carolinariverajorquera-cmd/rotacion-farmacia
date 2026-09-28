@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CONTRATOS, DEFAULT_DATA } from "./defaultData";
 import "./App.css";
+import "./login-enhancements.css";
 
 const STORAGE_KEY = "rotacion-farmacia-admin-v1";
 const copiar = value => JSON.parse(JSON.stringify(value));
@@ -18,12 +19,49 @@ async function api(action, options = {}) {
   return result;
 }
 
+function completarEstructura(valor) {
+  const datos = copiar(valor);
+  datos.periodos = Array.isArray(datos.periodos) ? datos.periodos : [];
+  datos.asignaciones = datos.asignaciones && typeof datos.asignaciones === "object" ? datos.asignaciones : {};
+
+  DEFAULT_DATA.periodos.forEach(periodoBase => {
+    const indice = datos.periodos.findIndex(periodo => periodo.id === periodoBase.id || periodo.label === periodoBase.label);
+    if (indice >= 0) {
+      const existente = datos.periodos[indice];
+      datos.periodos[indice] = { ...periodoBase, ...existente };
+      datos.asignaciones[existente.id] ||= {};
+    } else {
+      datos.periodos.push(copiar(periodoBase));
+      datos.asignaciones[periodoBase.id] ||= {};
+    }
+  });
+
+  datos.areas = (datos.areas || []).map(area => {
+    const areaBase = DEFAULT_DATA.areas.find(item => item.id === area.id);
+    const cupos = { ...(area.cupos || {}) };
+    datos.periodos.forEach((periodo, indice) => {
+      if (cupos[periodo.id] == null) {
+        const periodoAnterior = datos.periodos[indice - 1];
+        cupos[periodo.id] = areaBase?.cupos?.[periodo.id] ?? cupos[periodoAnterior?.id] ?? 1;
+      }
+    });
+    return { ...area, cupos };
+  });
+  datos.version = Math.max(Number(datos.version) || 1, DEFAULT_DATA.version);
+  return datos;
+}
+
 function periodoInicial(periodos) {
-  const fecha = new Date();
-  if (fecha < new Date(2026, 6, 1)) return periodos[0]?.id;
-  if (fecha < new Date(2026, 9, 1)) return periodos[1]?.id;
-  if (fecha < new Date(2027, 0, 1)) return periodos[2]?.id;
-  return periodos[3]?.id || periodos.at(-1)?.id;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const conFechas = periodos
+    .filter(periodo => periodo.inicio && periodo.fin)
+    .map(periodo => ({ ...periodo, desde: new Date(`${periodo.inicio}T00:00:00`), hasta: new Date(`${periodo.fin}T23:59:59`) }))
+    .sort((a, b) => a.desde - b.desde);
+  const actual = conFechas.find(periodo => hoy >= periodo.desde && hoy <= periodo.hasta);
+  if (actual) return actual.id;
+  const siguiente = conFechas.find(periodo => hoy < periodo.desde);
+  return siguiente?.id || conFechas.at(-1)?.id || periodos[0]?.id;
 }
 
 function Modal({ title, onClose, children }) {
@@ -32,15 +70,14 @@ function Modal({ title, onClose, children }) {
   </div>;
 }
 
-function Login({ onLogin, onPublico, error, waiting, servidor }) {
+function Login({ onLogin, onPublico, error, waiting }) {
   const [clave, setClave] = useState("");
   return <main className="login-shell"><section className="login-card">
-    <div className="login-icon">🔐</div><p className="eyebrow">Acceso Jefa de Farmacia</p><h1>Administración de rotaciones</h1>
-    <p>{servidor ? "Los cambios quedarán disponibles para toda la red del hospital." : "Modo local de respaldo."}</p>
+    <div className="login-icon">🔐</div><p className="eyebrow">Acceso Jefa de Farmacia</p><h1>SISTEMA DE ROTACION HRAV</h1>
     <input type="password" placeholder="Contraseña" value={clave} onChange={e => setClave(e.target.value)} onKeyDown={e => e.key === "Enter" && onLogin(clave)} />
     {error && <span className="error-text">{error}</span>}
     <button className="primary wide" disabled={waiting} onClick={() => onLogin(clave)}>{waiting ? "Ingresando…" : "Ingresar"}</button>
-    <button className="link-button" onClick={onPublico}>Soy TENS, ver rotación →</button>
+    <button className="tens-access" onClick={onPublico}>SOY TENS — VER ROTACIÓN →</button>
   </section></main>;
 }
 
@@ -76,7 +113,7 @@ function AdminPanel({ datos, acciones, servidor }) {
 }
 
 export default function App() {
-  const [datos, setDatos] = useState(copiar(DEFAULT_DATA));
+  const [datos, setDatos] = useState(completarEstructura(DEFAULT_DATA));
   const [servidor, setServidor] = useState(false);
   const [modo, setModo] = useState(null);
   const [esperando, setEsperando] = useState(true);
@@ -95,12 +132,12 @@ export default function App() {
       try {
         const result = await api("data");
         if (!activo) return;
-        const inicial = result.data || copiar(DEFAULT_DATA);
+        const inicial = completarEstructura(result.data || DEFAULT_DATA);
         setDatos(inicial); setServidor(true); setPeriodoId(periodoInicial(inicial.periodos));
         if (result.authenticated) setModo("jefa");
       } catch {
         if (!activo) return;
-        try { const local = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (local?.personas) setDatos(local); } catch { /* respaldo inicial */ }
+        try { const local = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (local?.personas) setDatos(completarEstructura(local)); } catch { /* respaldo inicial */ }
         setPeriodoId(periodoInicial(DEFAULT_DATA.periodos));
       } finally { if (activo) setEsperando(false); }
     })();
@@ -130,18 +167,17 @@ export default function App() {
   }
 
   const esJefa = modo === "jefa";
-  const actualId = periodoInicial(datos.periodos);
-  const semestre = datos.periodos.find(p => p.id === actualId)?.semestre;
-  const periodosVisibles = esJefa ? datos.periodos : datos.periodos.filter(p => p.semestre === semestre);
+  const periodosVisibles = datos.periodos;
   const periodo = datos.periodos.find(p => p.id === periodoId) || periodosVisibles[0] || datos.periodos[0];
   const asignaciones = useMemo(
     () => datos.asignaciones[periodo?.id] || {},
     [datos.asignaciones, periodo?.id],
   );
   const agrupadas = useMemo(() => datos.areas.map(a => ({ ...a, personas: datos.personas.filter(p => asignaciones[p.id] === a.id) })), [datos.areas, datos.personas, asignaciones]);
+  const sinAsignar = useMemo(() => datos.personas.filter(p => !asignaciones[p.id]), [datos.personas, asignaciones]);
 
   if (esperando && !modo) return <main className="loading">Cargando rotaciones…</main>;
-  if (!modo) return <Login onLogin={login} onPublico={() => setModo("tens")} error={error} waiting={esperando} servidor={servidor} />;
+  if (!modo) return <Login onLogin={login} onPublico={() => setModo("tens")} error={error} waiting={esperando} />;
 
   const acciones = {
     persona: setPersonaForm,
@@ -163,11 +199,20 @@ export default function App() {
   async function cambiarClave() { setEstado("Guardando contraseña…"); try { if (!servidor) throw new Error("Disponible solo en el servidor"); await api("change-password", { method: "POST", body: JSON.stringify(claveForm) }); setClaveForm(null); setEstado("✓ Contraseña actualizada"); } catch (e) { setEstado(`⚠ ${e.message}`); } }
 
   return <div className="app-shell">
-    <header className="topbar"><div><p className="eyebrow">Hospital · Equipo Farmacia</p><h1>Rotación TENS 2026</h1></div><div className="header-actions"><span className={`badge ${esJefa ? "admin" : "reader"}`}>{esJefa ? "🔐 Jefa de Farmacia" : "👁 TENS — Solo lectura"}</span>{estado && <span className="status">{estado}</span>}{esJefa && <button className={seccion === "administracion" ? "primary" : "secondary"} onClick={() => setSeccion(s => s === "rotacion" ? "administracion" : "rotacion")}>{seccion === "rotacion" ? "⚙ Administrar" : "← Ver rotación"}</button>}{seccion === "rotacion" && <button className="secondary" onClick={() => setVista(v => v === "area" ? "persona" : "area")}>{vista === "area" ? "👤 Ver por funcionaria" : "🏥 Ver por área"}</button>}<button className="secondary" onClick={logout}>Salir</button></div></header>
+    <header className="topbar"><div><p className="eyebrow">Hospital · Equipo Farmacia</p><h1>Rotación TENS HRAV</h1></div><div className="header-actions"><span className={`badge ${esJefa ? "admin" : "reader"}`}>{esJefa ? "🔐 Jefa de Farmacia" : "👁 TENS — Solo lectura"}</span>{estado && <span className="status">{estado}</span>}{esJefa && <button className={seccion === "administracion" ? "primary" : "secondary"} onClick={() => setSeccion(s => s === "rotacion" ? "administracion" : "rotacion")}>{seccion === "rotacion" ? "⚙ Administrar" : "← Ver rotación"}</button>}{seccion === "rotacion" && <button className="secondary" onClick={() => setVista(v => v === "area" ? "persona" : "area")}>{vista === "area" ? "👤 Ver por funcionaria" : "🏥 Ver por área"}</button>}<button className="secondary" onClick={logout}>Salir</button></div></header>
 
     {seccion === "administracion" ? <AdminPanel datos={datos} acciones={acciones} servidor={servidor} /> : <><nav className="period-tabs">{periodosVisibles.map(p => <button key={p.id} className={p.id === periodo.id ? "active" : ""} onClick={() => setPeriodoId(p.id)}>{p.label}</button>)}</nav><main className="content">
-      {vista === "area" ? <div className="area-grid">{agrupadas.map(a => <section className="area-card" key={a.id} style={{ "--accent": a.color, "--pastel": a.pastel }}><div className="area-header"><div><strong>{a.nombre}</strong>{a.id === "pyxis" && <small>Posición fija</small>}</div><span>{a.personas.length}/{Number(a.cupos?.[periodo.id] || 0)}</span></div><div className="people-list">{!a.personas.length && <p className="empty">Sin asignar</p>}{a.personas.map(p => <article className="person-row" key={p.id}><i>{p.nombre.charAt(0)}</i><div><strong>{p.nombre}</strong>{esJefa && <small>{CONTRATOS[p.contrato]}{p.nota && ` · 📌 ${p.nota}`}</small>}</div>{esJefa && <button className="icon-button" onClick={() => setMoviendo(p)}>✏️</button>}</article>)}</div></section>)}</div> : <div className="table-wrap"><table><thead><tr><th>Funcionaria</th>{periodosVisibles.map(p => <th key={p.id}>{p.corto}</th>)}</tr></thead><tbody>{datos.personas.map(persona => <tr key={persona.id}><td>{persona.nombre}</td>{periodosVisibles.map(p => { const a = datos.areas.find(x => x.id === datos.asignaciones[p.id]?.[persona.id]); return <td key={p.id}><span className="area-pill" style={{ "--accent": a?.color || "#64748b", "--pastel": a?.pastel || "#f1f5f9" }}>{a?.nombre.replace("Farmacia ", "") || "Sin asignar"}</span></td>; })}</tr>)}</tbody></table></div>}
-      <section className="rules"><strong>REGLAS</strong>{datos.reglas.map((r,i) => <span key={i}>📌 {r}</span>)}</section>
+      {vista === "area" ? <div className="area-grid">
+        {agrupadas.map(a => <section className="area-card" key={a.id} style={{ "--accent": a.color, "--pastel": a.pastel }}>
+          <div className="area-header"><div><strong>{a.nombre}</strong>{a.id === "pyxis" && <small>Posición fija</small>}</div><span>{a.personas.length}/{Number(a.cupos?.[periodo.id] || 0)}</span></div>
+          <div className="people-list">{!a.personas.length && <p className="empty">Sin asignar</p>}{a.personas.map(p => <article className="person-row" key={p.id}><i className="notranslate" translate="no">{p.nombre.charAt(0)}</i><div><strong>{p.nombre}</strong>{esJefa && <small>{CONTRATOS[p.contrato]}{p.nota && ` · 📌 ${p.nota}`}</small>}</div>{esJefa && <button className="icon-button" onClick={() => setMoviendo(p)}>✏️</button>}</article>)}</div>
+        </section>)}
+        {esJefa && sinAsignar.length > 0 && <section className="area-card" style={{ "--accent": "#64748b", "--pastel": "#f1f5f9" }}>
+          <div className="area-header"><div><strong>Sin asignar</strong><small>Funcionarias pendientes de ubicación</small></div><span>{sinAsignar.length}</span></div>
+          <div className="people-list">{sinAsignar.map(p => <article className="person-row" key={p.id}><i className="notranslate" translate="no">{p.nombre.charAt(0)}</i><div><strong>{p.nombre}</strong><small>{CONTRATOS[p.contrato]}{p.nota && ` · 📌 ${p.nota}`}</small></div><button className="icon-button" onClick={() => setMoviendo(p)}>✏️</button></article>)}</div>
+        </section>}
+      </div> : <div className="table-wrap"><table><thead><tr><th>Funcionaria</th>{periodosVisibles.map(p => <th key={p.id}>{p.corto}</th>)}</tr></thead><tbody>{datos.personas.map(persona => <tr key={persona.id}><td>{persona.nombre}</td>{periodosVisibles.map(p => { const a = datos.areas.find(x => x.id === datos.asignaciones[p.id]?.[persona.id]); return <td key={p.id}><span className="area-pill" style={{ "--accent": a?.color || "#64748b", "--pastel": a?.pastel || "#f1f5f9" }}>{a?.nombre.replace("Farmacia ", "") || "Sin asignar"}</span></td>; })}</tr>)}</tbody></table></div>}
+      {esJefa && <section className="rules"><strong>REGLAS</strong>{datos.reglas.map((r,i) => <span key={i}>📌 {r}</span>)}</section>}
     </main></>}
 
     {moviendo && <Modal title={`Mover a ${moviendo.nombre}`} onClose={() => setMoviendo(null)}><div className="choice-list"><button onClick={() => mover(moviendo.id, "")}>Sin asignar</button>{datos.areas.map(a => <button key={a.id} className={asignaciones[moviendo.id] === a.id ? "selected" : ""} style={{ "--accent": a.color, "--pastel": a.pastel }} onClick={() => mover(moviendo.id, a.id)}>{a.nombre}{asignaciones[moviendo.id] === a.id && " ✓"}</button>)}</div></Modal>}
