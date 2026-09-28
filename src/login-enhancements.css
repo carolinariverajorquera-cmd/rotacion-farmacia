@@ -1,0 +1,24 @@
+.tens-access {
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 14px;
+  color: #4938c8;
+  background: #f0efff;
+  border: 1px solid #cbc7ff;
+  border-radius: 9px;
+  box-shadow: 0 3px 10px rgba(92, 89, 213, 0.12);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.tens-access:hover,
+.tens-access:focus-visible {
+  background: #e4e2ff;
+  border-color: #9993f5;
+}
+
+.period-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+}
